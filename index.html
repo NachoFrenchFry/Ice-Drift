@@ -1,0 +1,356 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Neon Duel - Admin Edition</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body { 
+    background: #050505; 
+    display: flex; 
+    flex-direction: column; 
+    align-items: center; 
+    justify-content: center; 
+    height: 100vh; 
+    width: 100vw;
+    font-family: 'Segoe UI', sans-serif; 
+    overflow: hidden; 
+    color: #eee; 
+  }
+
+  /* Wrap everything in a scaler to maintain aspect ratio */
+  #gameScaler {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    transform-origin: center;
+  }
+
+  #ui { 
+    display: flex; 
+    justify-content: space-between; 
+    width: 800px; 
+    padding: 20px; 
+    background: rgba(255,255,255,0.03); 
+    border-radius: 12px 12px 0 0; 
+    border: 1px solid rgba(255,255,255,0.1); 
+    border-bottom: none; 
+  }
+  .player-info { display: flex; align-items: center; gap: 15px; }
+  .hp-bar-bg { width: 200px; height: 10px; background: #1a1a1a; border-radius: 20px; overflow: hidden; }
+  .hp-bar { height: 100%; transition: width 0.3s ease; }
+  .dash-indicator { width: 40px; height: 40px; border-radius: 8px; border: 1px solid rgba(255,255,255,0.2); display: flex; align-items: center; justify-content: center; font-size: 14px; font-weight: 900; position: relative; background: rgba(0,0,0,0.3); }
+  .dash-fill { position: absolute; bottom: 0; left: 0; width: 100%; transition: height 0.2s; border-radius: 0 0 6px 6px; }
+  
+  .game-container { position: relative; box-shadow: 0 0 50px rgba(0,0,0,0.5); }
+  #gameCanvas { border: 1px solid rgba(255,255,255,0.1); background: #080808; display: block; outline: none; }
+  
+  #overlay { position: absolute; top: 0; left: 0; right: 0; bottom: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; background: radial-gradient(circle, rgba(20,20,25,0.95) 0%, rgba(5,5,5,1) 100%); z-index: 100; text-align: center; backdrop-filter: blur(8px); transition: 0.5s; }
+  #overlay.hidden { opacity: 0; pointer-events: none; }
+  
+  h1 { font-size: 64px; font-weight: 900; letter-spacing: 8px; color: #fff; text-shadow: 0 0 20px rgba(0,242,255,0.5); }
+  .btn-group { display: flex; gap: 15px; margin-top: 20px; }
+  .btn { background: linear-gradient(135deg, #00f2ff 0%, #0077ff 100%); color: #000; padding: 16px 40px; border: none; border-radius: 4px; cursor: pointer; font-weight: 900; font-size: 14px; letter-spacing: 2px; text-transform: uppercase; }
+  .btn.admin { background: #333; color: #fff; border: 1px solid #444; }
+
+  #adminPanel { position: fixed; right: -300px; top: 0; width: 280px; height: 100%; background: rgba(10,10,15,0.95); border-left: 2px solid #00f2ff; padding: 25px; z-index: 200; transition: 0.4s cubic-bezier(0.18, 0.89, 0.32, 1.28); color: #fff; overflow-y: auto; }
+  #adminPanel.open { right: 0; }
+  .admin-header { font-weight: 900; color: #00f2ff; margin-bottom: 20px; border-bottom: 1px solid #222; padding-bottom: 10px; }
+  .control-group { margin-bottom: 15px; }
+  label { display: block; font-size: 12px; text-transform: uppercase; opacity: 0.7; margin-bottom: 5px; }
+  input[type="range"] { width: 100%; accent-color: #00f2ff; margin-bottom: 10px; }
+  .val-disp { float: right; color: #00f2ff; }
+</style>
+</head>
+<body>
+
+<div id="gameScaler">
+  <div id="ui">
+    <div class="player-info">
+      <strong style="color:#00f2ff;">P1</strong>
+      <div class="hp-bar-bg"><div id="hp1" class="hp-bar" style="width:100%; background: linear-gradient(90deg, #0077ff, #00f2ff);"></div></div>
+      <div class="dash-indicator" style="border-color:#00f2ff;"><div id="df1" class="dash-fill" style="background: rgba(0,242,255,0.3);"></div>E</div>
+    </div>
+    <div class="player-info">
+      <div class="dash-indicator" style="border-color:#ff0055;"><div id="df2" class="dash-fill" style="background: rgba(255,0,85,0.3);"></div>O</div>
+      <div class="hp-bar-bg"><div id="hp2" class="hp-bar" style="width:100%; background: linear-gradient(90deg, #ff0055, #ff66aa);"></div></div>
+      <strong style="color:#ff0055;">P2</strong>
+    </div>
+  </div>
+
+  <div class="game-container">
+    <canvas id="gameCanvas" width="800" height="500" tabindex="1"></canvas>
+    <div id="overlay">
+      <h1>NEON DUEL</h1>
+      <div class="btn-group">
+        <button class="btn" onclick="startGame()">Start Duel</button>
+        <button class="btn admin" onclick="requestAdmin()">Admin Menu</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div id="adminPanel">
+  <div class="admin-header">CORE SETTINGS</div>
+  <div class="control-group">
+    <label>Spawn Gold Rate <span class="val-disp" id="v_gold">1%</span></label>
+    <input type="range" id="goldRate" min="0" max="1" step="0.01" value="0.01">
+  </div>
+  <div class="control-group">
+    <label>Player Accel <span class="val-disp" id="v_speed">0.8</span></label>
+    <input type="range" id="pSpeed" min="0.1" max="3" step="0.1" value="0.8">
+  </div>
+  <div class="control-group">
+    <label>Bullet Speed <span class="val-disp" id="v_bSpeed">12</span></label>
+    <input type="range" id="bSpeed" min="5" max="30" step="1" value="12">
+  </div>
+  <div class="control-group">
+    <label>Max HP <span class="val-disp" id="v_hp">100</span></label>
+    <input type="range" id="maxHP" min="10" max="500" step="10" value="100">
+  </div>
+  <div class="control-group">
+    <label>Dash Strength <span class="val-disp" id="v_dash">25</span></label>
+    <input type="range" id="dashStr" min="10" max="60" step="1" value="25">
+  </div>
+  <button class="btn" style="width: 100%; font-size: 12px; height: 40px;" onclick="closeAdmin()">Close & Save</button>
+</div>
+
+<script>
+/* NEON DUEL 
+  Copyright © 2026 Kyle Zheng
+  All Rights Reserved. 
+  Unauthorized copying or distribution of this code is strictly prohibited.
+*/
+
+// --- Responsiveness Logic ---
+function resizeGame() {
+  const scaler = document.getElementById('gameScaler');
+  const windowWidth = window.innerWidth;
+  const windowHeight = window.innerHeight;
+  const gameWidth = 800;
+  const gameHeight = 600; // UI (approx 100) + Canvas (500)
+
+  const scale = Math.min(windowWidth / gameWidth, windowHeight / gameHeight) * 0.95;
+  scaler.style.transform = `scale(${scale})`;
+}
+window.addEventListener('resize', resizeGame);
+resizeGame();
+
+// --- Admin Logic ---
+const CONFIG = { goldRate: 0.01, accel: 0.8, bulletSpeed: 12, maxHP: 100, dashPower: 25 };
+
+function requestAdmin() {
+  const pw = prompt("Enter Admin Password:");
+  if(pw === "0814") document.getElementById('adminPanel').classList.add('open');
+  else alert("Access Denied.");
+}
+function closeAdmin() { document.getElementById('adminPanel').classList.remove('open'); }
+
+document.getElementById('goldRate').oninput = (e) => { CONFIG.goldRate = parseFloat(e.target.value); document.getElementById('v_gold').innerText = (CONFIG.goldRate*100).toFixed(0) + "%"; };
+document.getElementById('pSpeed').oninput = (e) => { CONFIG.accel = parseFloat(e.target.value); document.getElementById('v_speed').innerText = e.target.value; };
+document.getElementById('bSpeed').oninput = (e) => { CONFIG.bulletSpeed = parseInt(e.target.value); document.getElementById('v_bSpeed').innerText = e.target.value; };
+document.getElementById('maxHP').oninput = (e) => { CONFIG.maxHP = parseInt(e.target.value); document.getElementById('v_hp').innerText = e.target.value; };
+document.getElementById('dashStr').oninput = (e) => { CONFIG.dashPower = parseInt(e.target.value); document.getElementById('v_dash').innerText = e.target.value; };
+
+// --- Game Engine ---
+const canvas = document.getElementById('gameCanvas');
+const ctx = canvas.getContext('2d');
+const W = 800, H = 500;
+const keys = {};
+const shipSize = 40, collisionRadius = 18; 
+
+window.addEventListener('keydown', e => keys[e.code] = true);
+window.addEventListener('keyup', e => {
+    keys[e.code] = false;
+    if(e.code === 'KeyQ') p1.canShoot = true; if(e.code === 'KeyR') p1.canMelee = true;
+    if(e.code === 'KeyU') p2.canShoot = true; if(e.code === 'KeyP') p2.canMelee = true;
+});
+
+const tex1 = new Image(); tex1.src = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAB4AAAAgCAYAAAAFQMh/AAAAAXNSR0IArs4c6QAAAERlWElmTU0AKgAAAAgAAYdpAAQAAAABAAAAGgAAAAAAA6ABAAMAAAABAAEAAKACAAQAAAABAAAAHqADAAQAAAABAAAAIAAAAADUUDHiAAACmElEQVRIDcWXv2sUQRTH34Z0miIEUtiJhLtDCBfO4rDQRgIp0gmBQARJiNfkLC38B4RUwUoJCikOi3QWQjqVJE0Or7rLEdKGIIiFsd7M97nvmNn5kZ0tzgfLzLx58/3szLyZ2yMqb6kaimesxsBUmaKOFQ6mAKWMmvlEVPS/4HR56w8NBgPq9/vptx/MjYZPlgDzkDf9Gpcb98oplJkxTT++TSvzRJVZot3zMYLLocxRpWYMid6lKRTbKg2OBeXjY8HpncY7+v31ioY/iZ/j912CT1lUZseA5ejwywMOqNjc4gmqheExYNr+cCUcq6xWKpYv5IgCd4869Gl3k1CK/f3VpVszDcMnfaHSBcZyOZcMUN+sGw9XfRynXh7MV3B2Detw3l8fVIi4SnMv7dOjPFg09JIzWXeE6kUz3Atut9vQNzI5BNT7JMMzDb1rVHeC8cuzf3if8MvjWl7sJxJMEsuV0Vh2aEDLZRYYgU/WvnP2uqAQkezGCwDuM/RDywW3wDdB7yav+aUEBnH4TodDcRmlwA2naljg0JEBoNls0v7HlyMd+FqtFi1V94Lw0YCsooMLHZm8gKvt23MVOzqiAvZCsYS4mTBLzMxnWAnMGrG+ZdfPOcBeqEBCCSQxUkrsTXD+5lp/5c9MCGHf9X0ViKvEjDEmNHOMAzg5O3iQ4tCr0tDCLQQoXmypanQFG8hkHLmL7gsjTmMksseAIyjRHwzUz3KtVqN6vW6IoeHyZ1BDT2MwyBLKHMbeY8+QPLCnz3e4lJfCkYJ9OX1GekZ/fjsFN+CWFfquFiiyutfr0aOFhK9TqEFcfdizn2jPglvEgg7sPT8qHsU/B5TZWKPe6XS4jXh1bPS+gig7TBdB3WfSp8f7Yv+f/xqWPk/02lIMnwAAAABJRU5ErkJggg==";
+const tex2 = new Image(); tex2.src = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAB4AAAAgCAYAAAAFQMh/AAAAAXNSR0IArs4c6QAAAERlWElmTU0AKgAAAAgAAYdpAAQAAAABAAAAGgAAAAAAA6ABAAMAAAABAAEAAKACAAQAAAABAAAAHqADAAQAAAABAAAAIAAAAADUUDHiAAAClUlEQVRIDcWXv2tUQRDH58Ta/AE5SJXiTpArUhwRa4l1xM76IHB2IYV/gKQQBAsbCy2u0SIBIVilEFKlsMk7LAMXCHYxf8C633Fnmff2R243EAceuztvZj47u7P77ojqxVhXPHcqDDRWLPVO4WAKUNqizO8VWf8zNn+2tmg+n1PTNMbs70NbDL9fAWaXN82A20/0rSpEr8LLvPxq6MUjop+XRL9+E33e5jBFsWqWumKuoUs1GNneRqrBt4HW+Jova2uoauwzP83mJutssKLKLslYjg5P+P3HZ7T39rGfvJ0A+kvDS8B0fXzsQd1Of2Wlq8qOi8Dfm4a2d3YIrcjZxQU9XF1t6eRdro2BsVzRJQM0lfXT4TDFicbrgvkKdtewhvP+pqBCxFXamXQqHnXBEkO3qFo9zvadrZ501D4Jnk6ncGhVcjRCRCkV7mJELCieMb48Tw4PCV+e2PJiP1FgUlixisayIwZixSTIGIZn1ilXSFLdmADgKeH37hPatQnAN0Ffr6/zpCQQgkO3uLoSVasVeEtpBwE4lykA4/GYXi0WPg50k8mEPmxsZOHewXU0eKkj0w0QG6f23Nr6ahdwEoolxM2ELJFZSrASyBq2qWXX5xzgJFQguQISG2nF9iY4/+aaHxyIX9AiEPb9h9rXwEgpkDF8cpnDHODe8OTE4NDbVoUgwi0EKE/MLuOygkrGkXt+ft5yUYye7DHgMMIPNv/AUV8gg8GARqNRKxgGMb2D+liIqxgMCQI5RWvvsWcoHsi7fp9bmRSOFGRyekq6oh8cHUENeCCScfBCKwSKqkb19nZ3/WsEF33uLHuHJTvYe36svcE/B7TOt9WfzWY8hj1+kyk7Z17e6CDop0TeafuU7f/T/wX9+FC37QKxigAAAABJRU5ErkJggg==";
+
+let p1, p2, gameOver = true, gameStarted = false, screenShake = 0, items = [];
+const walls = [{x:380,y:60,w:40,h:140},{x:380,y:300,w:40,h:140},{x:140,y:220,w:30,h:60},{x:630,y:220,w:30,h:60}];
+
+function spawnItem() {
+    if (!gameStarted || gameOver) return;
+    let rx, ry, hitting;
+    do { rx = 50+Math.random()*(W-100); ry = 50+Math.random()*(H-100); hitting = checkWall(rx,ry,20); } while (hitting);
+    let isGold = Math.random() < CONFIG.goldRate; 
+    items.push({ x: rx, y: ry, pulse: 0, type: isGold ? 'gold' : 'heal' });
+}
+setInterval(spawnItem, 5000);
+
+function startGame() { gameStarted = true; document.getElementById('overlay').classList.add('hidden'); initGame(); canvas.focus(); }
+
+function createPlayer(x, y, color, texture) {
+  return { 
+    x, y, color, texture, vx:0, vy:0, dirX:1, dirY:0, hp:CONFIG.maxHP, bullets:[], 
+    dashCooldown:0, dashTimer:0, shootCooldown:0, meleeCooldown:0, meleeVisual:0, meleeHasHit:false,
+    ramCooldown:0, canShoot:true, canMelee:true, trail:[], invincible:0, targetAngle: 0, overdrive: 0 
+  };
+}
+
+function initGame() { 
+  p1 = createPlayer(80, H/2, '#00f2ff', tex1); p1.targetAngle = 0; 
+  p2 = createPlayer(W-80, H/2, '#ff0055', tex2); p2.targetAngle = Math.PI; p2.dirX = -1;
+  items = []; gameOver = false; 
+}
+
+function checkWall(px, py, r) {
+  for (let w of walls) {
+    let cx = Math.max(w.x, Math.min(px, w.x + w.w)), cy = Math.max(w.y, Math.min(py, w.y + w.h));
+    if (((px-cx)**2 + (py-cy)**2) < r*r) return true;
+  } return false;
+}
+
+function updatePlayer(p, opp, up, down, left, right, shoot, dash, melee) {
+  let moving = false, mX = 0, mY = 0;
+  if (keys[left]) mX -= 1; if (keys[right]) mX += 1;
+  if (keys[up]) mY -= 1; if (keys[down]) mY += 1;
+  if (mX !== 0 || mY !== 0) { p.targetAngle = Math.atan2(mY, mX); moving = true; }
+
+  let currentAngle = Math.atan2(p.dirY, p.dirX);
+  let angleDiff = p.targetAngle - currentAngle;
+  while (angleDiff < -Math.PI) angleDiff += Math.PI * 2;
+  while (angleDiff > Math.PI) angleDiff -= Math.PI * 2;
+  currentAngle += angleDiff * 0.2; 
+  p.dirX = Math.cos(currentAngle); p.dirY = Math.sin(currentAngle);
+
+  let speedMult = p.overdrive > 0 ? 2.0 : 1.0;
+  let meleeRange = p.overdrive > 0 ? 160 : 95;
+
+  if (keys[dash] && p.dashCooldown <= 0) { 
+    p.dashTimer = 12; p.dashCooldown = 70; 
+    p.vx = p.dirX * CONFIG.dashPower; p.vy = p.dirY * CONFIG.dashPower; p.invincible = 15; 
+  }
+  
+  let firePressed = p.overdrive > 0 ? keys[shoot] : (keys[shoot] && p.canShoot);
+  if (firePressed && p.shootCooldown <= 0) { 
+      p.canShoot = false;
+      p.shootCooldown = p.overdrive > 0 ? 8 : 15;
+      if (p.overdrive > 0) {
+          for(let i=0; i<10; i++) {
+              let ang = (i/10) * Math.PI * 2;
+              p.bullets.push({x: p.x, y: p.y, vx: Math.cos(ang)*CONFIG.bulletSpeed, vy: Math.sin(ang)*CONFIG.bulletSpeed, color: '#ffd700', t: []});
+          }
+          screenShake = 5;
+      } else {
+          p.bullets.push({x: p.x, y: p.y, vx: p.dirX*CONFIG.bulletSpeed, vy: p.dirY*CONFIG.bulletSpeed, color: '#fff', t: []});
+          p.vx -= p.dirX * 4; p.vy -= p.dirY * 4;
+      }
+  }
+
+  if (keys[melee] && p.canMelee && p.meleeCooldown <= 0) {
+      p.canMelee = false; p.meleeCooldown = 40; p.meleeVisual = 15; p.meleeHasHit = false;
+  }
+  if (p.meleeVisual > 0 && !p.meleeHasHit) {
+      const dx = opp.x - p.x, dy = opp.y - p.y;
+      if (Math.sqrt(dx*dx + dy*dy) < meleeRange) { 
+          opp.hp -= 20; p.meleeHasHit = true; screenShake = 15; 
+          opp.vx += p.dirX * 25; opp.vy += p.dirY * 25;
+      }
+  }
+
+  for(let i=items.length-1; i>=0; i--){
+      if(Math.sqrt((p.x-items[i].x)**2 + (p.y-items[i].y)**2) < 30) {
+          if (items[i].type === 'heal') p.hp = Math.min(CONFIG.maxHP, p.hp+20);
+          else { p.overdrive = 300; screenShake = 20; }
+          items.splice(i,1);
+      }
+  }
+
+  if (moving) { p.vx += p.dirX * CONFIG.accel * speedMult; p.vy += p.dirY * CONFIG.accel * speedMult; }
+  p.vx *= 0.84; p.vy *= 0.84;
+  if (!checkWall(p.x + p.vx, p.y, collisionRadius)) p.x += p.vx; else p.vx *= -0.5;
+  if (!checkWall(p.x, p.y + p.vy, collisionRadius)) p.y += p.vy; else p.vy *= -0.5;
+  p.x = Math.max(collisionRadius, Math.min(W-collisionRadius, p.x));
+  p.y = Math.max(collisionRadius, Math.min(H-collisionRadius, p.y));
+
+  if (p.dashTimer > 0 || p.overdrive > 0) { p.dashTimer--; p.trail.push({x: p.x, y: p.y, l: 15, c: p.overdrive > 0 ? '#ffd700' : p.color}); }
+  p.shootCooldown--; p.meleeCooldown--; p.dashCooldown--; p.meleeVisual--; p.invincible--; p.ramCooldown--; p.overdrive--;
+  p.trail.forEach(t => t.l--); p.trail = p.trail.filter(t => t.l > 0);
+}
+
+function update() {
+  if (gameOver || !gameStarted) return;
+  updatePlayer(p1, p2, 'KeyW','KeyS','KeyA','KeyD', 'KeyQ','KeyE','KeyR');
+  updatePlayer(p2, p1, 'KeyI','KeyK','KeyJ','KeyL', 'KeyU','KeyO','KeyP');
+
+  const dx = p1.x - p2.x, dy = p1.y - p2.y, dist = Math.sqrt(dx*dx + dy*dy);
+  if (dist < collisionRadius * 2 && p1.ramCooldown <= 0) {
+      p1.hp -= 5; p2.hp -= 5;
+      const angle = Math.atan2(dy, dx);
+      p1.vx += Math.cos(angle)*12; p1.vy += Math.sin(angle)*12;
+      p2.vx -= Math.cos(angle)*12; p2.vy -= Math.sin(angle)*12;
+      p1.ramCooldown = 20; p2.ramCooldown = 20; screenShake = 10;
+  }
+
+  [p1, p2].forEach(p => {
+    let opp = (p === p1) ? p2 : p1;
+    for (let i = p.bullets.length-1; i>=0; i--) {
+      let b = p.bullets[i]; b.x += b.vx; b.y += b.vy;
+      if (!b.t) b.t = []; b.t.push({x:b.x, y:b.y}); if(b.t.length > 5) b.t.shift();
+      if (checkWall(b.x, b.y, 6) || b.x<0 || b.x>W || b.y<0 || b.y>H) { p.bullets.splice(i,1); continue; }
+      if (Math.sqrt((b.x-opp.x)**2 + (b.y-opp.y)**2) < collisionRadius+4 && opp.invincible <= 0) { 
+          opp.hp -= (p.overdrive > 0 ? 5 : 10);
+          opp.vx += b.vx*0.5; opp.vy += b.vy*0.5; screenShake = 4; p.bullets.splice(i,1); 
+      }
+    }
+  });
+  items.forEach(m => m.pulse += 0.1);
+  if (p1.hp <= 0 || p2.hp <= 0) { gameOver = true; document.getElementById('overlay').classList.remove('hidden'); }
+}
+
+function draw() {
+  ctx.fillStyle = '#080808'; ctx.fillRect(0,0,W,H);
+  walls.forEach(w => { ctx.fillStyle = '#111'; ctx.fillRect(w.x, w.y, w.w, w.h); ctx.strokeStyle = 'rgba(255,255,255,0.1)'; ctx.strokeRect(w.x, w.y, w.w, w.h); });
+  
+  items.forEach(m => {
+      ctx.save(); ctx.translate(m.x, m.y); let s = 1+Math.sin(m.pulse)*0.2; ctx.scale(s, s);
+      ctx.shadowBlur = 15; ctx.shadowColor = m.type === 'gold' ? "#ffd700" : "#00ff88";
+      ctx.fillStyle = m.type === 'gold' ? "#ffd700" : "#00ff88";
+      if(m.type === 'gold') { ctx.beginPath(); ctx.arc(0,0,12,0,Math.PI*2); ctx.fill(); }
+      else { ctx.fillRect(-10, -3, 20, 6); ctx.fillRect(-3, -10, 6, 20); }
+      ctx.restore();
+  });
+
+  if (!gameStarted) return;
+  [p1, p2].forEach(p => {
+    p.trail.forEach((t) => {
+      ctx.globalAlpha = t.l/20; ctx.fillStyle = t.c || p.color;
+      ctx.beginPath(); ctx.arc(t.x, t.y, 14*(t.l/15), 0, Math.PI*2); ctx.fill();
+    });
+    if (p.meleeVisual > 0) {
+      ctx.save(); ctx.translate(p.x, p.y); ctx.rotate(Math.atan2(p.dirY, p.dirX));
+      ctx.strokeStyle = p.overdrive > 0 ? '#ffd700' : p.color; ctx.lineWidth = 6; ctx.globalAlpha = p.meleeVisual/15;
+      let r = p.overdrive > 0 ? 150 : 70;
+      ctx.beginPath(); ctx.arc(0, 0, r, -1.2, 1.2); ctx.stroke(); ctx.restore();
+    }
+    ctx.globalAlpha = 1; ctx.save(); ctx.translate(p.x, p.y); ctx.rotate(Math.atan2(p.dirY, p.dirX) + Math.PI/2);
+    if (p.overdrive > 0) { ctx.shadowBlur = 20; ctx.shadowColor = "#ffd700"; }
+    ctx.drawImage(p.texture, -shipSize/2, -shipSize/2, shipSize, shipSize); ctx.restore();
+    p.bullets.forEach(b => {
+      ctx.strokeStyle = b.color; ctx.lineWidth = 2; ctx.beginPath(); b.t.forEach((pos, i) => i === 0 ? ctx.moveTo(pos.x, pos.y) : ctx.lineTo(pos.x, pos.y)); ctx.stroke();
+      ctx.fillStyle = b.color; ctx.beginPath(); ctx.arc(b.x, b.y, 3, 0, Math.PI*2); ctx.fill();
+    });
+  });
+}
+
+function loop() {
+  update(); ctx.save();
+  if (screenShake > 0) { ctx.translate((Math.random()-0.5)*screenShake, (Math.random()-0.5)*screenShake); screenShake *= 0.9; }
+  draw(); ctx.restore();
+  if (p1) {
+    document.getElementById('hp1').style.width = (p1.hp / CONFIG.maxHP * 100) + '%';
+    document.getElementById('hp2').style.width = (p2.hp / CONFIG.maxHP * 100) + '%';
+    document.getElementById('df1').style.height = (p1.dashCooldown <= 0 ? 100 : (1 - p1.dashCooldown/70)*100) + '%';
+    document.getElementById('df2').style.height = (p2.dashCooldown <= 0 ? 100 : (1 - p2.dashCooldown/70)*100) + '%';
+  }
+  requestAnimationFrame(loop);
+}
+loop();
+</script>
+</body>
+</html>
