@@ -5,9 +5,9 @@
 <style>body{margin:0;overflow:hidden;background:#000;}canvas{display:block;}</style>
 </head>
 <body>
-<canvas id="c" width="1600" height="900"></canvas>
+<canvas id="c"></canvas>
 <script>
-const SCREEN_WIDTH=1600,SCREEN_HEIGHT=900,SCREEN_WM=800,SCREEN_HM=450;
+let SCREEN_WIDTH=window.innerWidth,SCREEN_HEIGHT=window.innerHeight,SCREEN_WM=SCREEN_WIDTH/2,SCREEN_HM=SCREEN_HEIGHT/2;
 const TILE_GRID_WIDTH=100,TILE_GRID_HEIGHT=100,TILE_SIZE=52;
 const CAR_WIDTH=45,CAR_HEIGHT=84;
 const ACCELERATION=0.4,FRICTION=0.98;
@@ -289,6 +289,12 @@ class Car {
 
 class Background {
     constructor(){
+        this.initCarX=SCREEN_WM-Math.floor(CAR_WIDTH/2)+2200;
+        this.initCarY=SCREEN_HM-Math.floor(CAR_HEIGHT/2)+3000;
+        this.bw=0; this.bh=0; this.rects=[];
+        this.rebuild();
+    }
+    rebuild(){
         this.bw=Math.ceil(SCREEN_WIDTH/TILE_SIZE)+1;
         this.bh=Math.ceil(SCREEN_HEIGHT/TILE_SIZE)+1;
         this.rects=[];
@@ -297,8 +303,6 @@ class Background {
             for(let j=0;j<this.bw;j++)
                 this.rects[i][j]={x:j*TILE_SIZE,y:i*TILE_SIZE,w:TILE_SIZE,h:TILE_SIZE};
         }
-        this.initCarX=SCREEN_WM-Math.floor(CAR_WIDTH/2)+2200;
-        this.initCarY=SCREEN_HM-Math.floor(CAR_HEIGHT/2)+3000;
     }
     update(px,py){
         const offX=((Math.trunc(px-this.initCarX)%TILE_SIZE)+TILE_SIZE)%TILE_SIZE;
@@ -321,7 +325,14 @@ class Background {
 // --- Init ---
 const canvas=document.getElementById('c');
 const ctx=canvas.getContext('2d');
-ctx.imageSmoothingEnabled=false;
+
+function resizeCanvas(){
+    SCREEN_WIDTH=window.innerWidth; SCREEN_HEIGHT=window.innerHeight;
+    SCREEN_WM=SCREEN_WIDTH/2; SCREEN_HM=SCREEN_HEIGHT/2;
+    canvas.width=SCREEN_WIDTH; canvas.height=SCREEN_HEIGHT;
+    ctx.imageSmoothingEnabled=false;
+}
+resizeCanvas();
 
 let showHitboxes=false;
 let mouseX=SCREEN_WM, mouseY=SCREEN_HM;
@@ -331,7 +342,6 @@ document.addEventListener('keyup',  e=>{if(e.key==='Shift') showHitboxes=false;}
 
 function loadImg(src){return new Promise((res,rej)=>{const i=new Image();i.onload=()=>res(i);i.onerror=()=>rej(new Error('Cannot load: '+src));i.src=src;});}
 
-// Show loading message immediately so a black screen means JS isn't running at all
 ctx.fillStyle='#222'; ctx.fillRect(0,0,SCREEN_WIDTH,SCREEN_HEIGHT);
 ctx.fillStyle='#fff'; ctx.font='32px monospace'; ctx.fillText('Loading textures...',60,SCREEN_HM);
 
@@ -365,6 +375,15 @@ Promise.all([loadImg('textures/tiles.png'),loadImg('textures/car.png')]).then(([
 
     const player=new Car();
     const bg=new Background();
+
+    window.addEventListener('resize',()=>{
+        resizeCanvas();
+        bg.rebuild();
+        player.visual.x=SCREEN_WM-Math.floor(CAR_WIDTH/2);
+        player.visual.y=SCREEN_HM-Math.floor(CAR_HEIGHT/2);
+        player.hitbox.x=SCREEN_WM-Math.floor(CAR_WIDTH/2);
+        player.hitbox.y=SCREEN_HM-Math.floor(CAR_HEIGHT/2);
+    });
 
     function loop(){
         player.update(mouseX,mouseY,tiles);
