@@ -2,7 +2,8 @@
 <html>
 <head>
 <title>Ice Drift</title>
-<style>body{margin:0;overflow:hidden;background:#000;}canvas{display:block;}</style>
+<meta name="viewport" content="width=device-width,initial-scale=1,user-scalable=no">
+<style>body{margin:0;overflow:hidden;background:#000;touch-action:none;}canvas{display:block;}</style>
 </head>
 <body>
 <canvas id="c"></canvas>
@@ -358,6 +359,9 @@ resizeCanvas();
 let showHitboxes=false;
 let mouseX=SCREEN_WM, mouseY=SCREEN_HM;
 canvas.addEventListener('mousemove',e=>{const r=canvas.getBoundingClientRect();mouseX=e.clientX-r.left;mouseY=e.clientY-r.top;});
+function updateFromTouch(e){e.preventDefault();const r=canvas.getBoundingClientRect();const t=e.touches[0];mouseX=t.clientX-r.left;mouseY=t.clientY-r.top;}
+canvas.addEventListener('touchstart',updateFromTouch,{passive:false});
+canvas.addEventListener('touchmove', updateFromTouch,{passive:false});
 document.addEventListener('keydown',e=>{if(e.key==='Shift') showHitboxes=true;});
 document.addEventListener('keyup',  e=>{if(e.key==='Shift') showHitboxes=false;});
 
