@@ -11,6 +11,8 @@ let SCREEN_WIDTH=window.innerWidth,SCREEN_HEIGHT=window.innerHeight,SCREEN_WM=SC
 const TILE_GRID_WIDTH=100,TILE_GRID_HEIGHT=100,TILE_SIZE=52;
 const CAR_WIDTH=45,CAR_HEIGHT=84;
 const ACCELERATION=0.4,FRICTION=0.98;
+const INITIAL_CAR_X=SCREEN_WM-Math.floor(45/2)+3300;
+const INITIAL_CAR_Y=SCREEN_HM-Math.floor(84/2)+4100;
 
 const TILE_MAP=[
 [0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,0,0,0,0],
@@ -214,8 +216,8 @@ class Car {
     constructor(){
         this.xVel=0; this.yVel=0;
         this.drawDir=270;
-        this.xPos=SCREEN_WM-Math.floor(CAR_WIDTH/2)+2200;
-        this.yPos=SCREEN_HM-Math.floor(CAR_HEIGHT/2)+3000;
+        this.xPos=INITIAL_CAR_X;
+        this.yPos=INITIAL_CAR_Y;
         this.visual={x:SCREEN_WM-Math.floor(CAR_WIDTH/2),y:SCREEN_HM-Math.floor(CAR_HEIGHT/2),w:CAR_WIDTH,h:CAR_HEIGHT};
         this.hitbox={x:SCREEN_WM-Math.floor(CAR_WIDTH/2),y:SCREEN_HM-Math.floor(CAR_HEIGHT/2),w:50,h:50};
         this.mouseX=0; this.mouseY=0;
@@ -232,9 +234,18 @@ class Car {
         this.drawDir=Math.atan2(dy,dx)*180/Math.PI+90;
     }
     updatePosition(tiles){
-        this.xVel*=FRICTION; this.yVel*=FRICTION;
-        if(Math.abs(this.xVel)<0.1) this.xVel=0;
-        if(Math.abs(this.yVel)<0.1) this.yVel=0;
+        let onIce=false;
+        const hb=this.hitbox;
+        outer: for(let i=0;i<TILE_GRID_HEIGHT;i++){
+            for(let j=0;j<TILE_GRID_WIDTH;j++){
+                const t=tiles[i][j];
+                if(t.active&&t.type==="ICE"&&hb.x<t.hitbox.x+t.hitbox.w&&hb.x+hb.w>t.hitbox.x&&hb.y<t.hitbox.y+t.hitbox.h&&hb.y+hb.h>t.hitbox.y){onIce=true;break outer;}
+            }
+        }
+        if(onIce){this.xVel*=FRICTION;this.yVel*=FRICTION;}
+        else{this.xVel*=0.9;this.yVel*=0.9;}
+        if(Math.abs(this.xVel)<0.05) this.xVel=0;
+        if(Math.abs(this.yVel)<0.05) this.yVel=0;
         let xHit=false, yHit=false;
         const hbResetX=SCREEN_WM-Math.floor(CAR_WIDTH/2);
         const hbResetY=SCREEN_HM-Math.floor(CAR_HEIGHT/2);
@@ -278,19 +289,29 @@ class Car {
             const hb=this.hitbox;
             ctx.strokeStyle='rgb(255,0,0)';
             ctx.strokeRect(hb.x,hb.y,hb.w,hb.h);
+            const hcx=hb.x+hb.w/2, hcy=hb.y+hb.h/2;
             ctx.strokeStyle='rgb(0,0,255)';
             ctx.beginPath();
-            ctx.moveTo(SCREEN_WM,SCREEN_HM);
+            ctx.moveTo(hcx,hcy);
             ctx.lineTo(this.mouseX,this.mouseY);
             ctx.stroke();
+            if(this.xVel!==0||this.yVel!==0){
+                const mouseLen=Math.sqrt((this.mouseX-hcx)**2+(this.mouseY-hcy)**2);
+                const velLen=Math.sqrt(this.xVel*this.xVel+this.yVel*this.yVel);
+                ctx.strokeStyle='rgb(0,255,255)';
+                ctx.beginPath();
+                ctx.moveTo(hcx,hcy);
+                ctx.lineTo(hcx+(this.xVel/velLen)*mouseLen,hcy+(this.yVel/velLen)*mouseLen);
+                ctx.stroke();
+            }
         }
     }
 }
 
 class Background {
     constructor(){
-        this.initCarX=SCREEN_WM-Math.floor(CAR_WIDTH/2)+2200;
-        this.initCarY=SCREEN_HM-Math.floor(CAR_HEIGHT/2)+3000;
+        this.initCarX=INITIAL_CAR_X;
+        this.initCarY=INITIAL_CAR_Y;
         this.bw=0; this.bh=0; this.rects=[];
         this.rebuild();
     }
