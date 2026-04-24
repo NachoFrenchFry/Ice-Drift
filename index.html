@@ -253,7 +253,7 @@ class Car {
         const hbResetX=SCREEN_WM-Math.floor(CAR_WIDTH/2);
         const hbResetY=SCREEN_HM-Math.floor(CAR_HEIGHT/2);
         this.hitbox.x=hbResetX; this.hitbox.y=hbResetY;
-        const xSteps=Math.floor(Math.abs(this.xVel));
+        const xSteps=Math.ceil(Math.abs(this.xVel));
         const xDir=Math.sign(this.xVel);
         for(let i=0;i<xSteps;i++){
             this.hitbox.x+=xDir;
@@ -264,7 +264,7 @@ class Car {
                 }
         }
         this.hitbox.x=hbResetX; this.hitbox.y=hbResetY;
-        const ySteps=Math.floor(Math.abs(this.yVel));
+        const ySteps=Math.ceil(Math.abs(this.yVel));
         const yDir=Math.sign(this.yVel);
         for(let i=0;i<ySteps;i++){
             this.hitbox.y+=yDir;
