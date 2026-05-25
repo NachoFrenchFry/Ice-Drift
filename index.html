@@ -11,7 +11,10 @@
 <input id="hiddenUN" type="text" autocomplete="username" autocorrect="off" autocapitalize="off" spellcheck="false" maxlength="32" style="position:fixed;opacity:0;pointer-events:none;top:50%;left:50%;width:1px;height:1px;font-size:16px;">
 <input id="hiddenPW" type="password" autocomplete="current-password" maxlength="32" style="position:fixed;opacity:0;pointer-events:none;top:50%;left:50%;width:1px;height:1px;font-size:16px;">
 <script>
-let SCREEN_WIDTH=window.innerWidth,SCREEN_HEIGHT=window.innerHeight,SCREEN_WM=SCREEN_WIDTH/2,SCREEN_HM=SCREEN_HEIGHT/2;
+const BASE_W=1680;
+const _initScale=window.innerWidth/BASE_W;
+let SCREEN_WIDTH=BASE_W,SCREEN_HEIGHT=Math.round(window.innerHeight/_initScale),SCREEN_WM=BASE_W/2,SCREEN_HM=Math.round(window.innerHeight/_initScale)/2;
+let gameScale=_initScale,gameOffX=0,gameOffY=0;
 const TILE_GRID_WIDTH=100,TILE_GRID_HEIGHT=100,TILE_SIZE=52;
 const CAR_WIDTH=45,CAR_HEIGHT=84;
 const ACCELERATION=0.4,FRICTION=0.98;
@@ -1263,7 +1266,7 @@ class MenuBackground {
         for(let i=0;i<this.gridH;i++)
             for(let j=0;j<this.gridW;j++){
                 const r=this.grid[i][j];
-                ctx.drawImage(sheet,7*17,0,17,17,r.x,r.y,r.w,r.h);
+                ctx.drawImage(sheet,7*17,0,17,17,r.x-1,r.y-1,r.w+2,r.h+2);
             }
     }
 }
@@ -1417,16 +1420,20 @@ const canvas=document.getElementById('c');
 const ctx=canvas.getContext('2d');
 
 function resizeCanvas(){
-    SCREEN_WIDTH=window.innerWidth; SCREEN_HEIGHT=window.innerHeight;
-    SCREEN_WM=SCREEN_WIDTH/2; SCREEN_HM=SCREEN_HEIGHT/2;
-    canvas.width=SCREEN_WIDTH; canvas.height=SCREEN_HEIGHT;
+    canvas.width=window.innerWidth; canvas.height=window.innerHeight;
+    gameScale=window.innerWidth/BASE_W;
+    SCREEN_HEIGHT=Math.round(window.innerHeight/gameScale);
+    SCREEN_HM=SCREEN_HEIGHT/2;
+    gameOffX=0; gameOffY=0;
     ctx.imageSmoothingEnabled=false;
 }
 resizeCanvas();
 
 mouseX=SCREEN_WM; mouseY=SCREEN_HM;
-canvas.addEventListener('mousemove',e=>{const r=canvas.getBoundingClientRect();mouseX=e.clientX-r.left;mouseY=e.clientY-r.top;});
-function updateFromTouch(e){e.preventDefault();const r=canvas.getBoundingClientRect();const t=e.touches[0];mouseX=t.clientX-r.left;mouseY=t.clientY-r.top;}
+function toDesign(cx,cy){const r=canvas.getBoundingClientRect();return[(cx-r.left-gameOffX)/gameScale,(cy-r.top-gameOffY)/gameScale];}
+canvas.addEventListener('mousemove',e=>{[mouseX,mouseY]=toDesign(e.clientX,e.clientY);});
+function updateFromTouch(e){e.preventDefault();const t=e.touches[0];[mouseX,mouseY]=toDesign(t.clientX,t.clientY);}
+
 canvas.addEventListener('touchstart',updateFromTouch,{passive:false});
 canvas.addEventListener('touchmove',updateFromTouch,{passive:false});
 canvas.addEventListener('mousedown',e=>{
@@ -1442,8 +1449,7 @@ canvas.addEventListener('touchstart',e=>{
     mouseJustPressed=true;mouseDown=true;
     // Focus hidden input immediately (must be synchronous for iOS keyboard)
     if((page==='LOGIN'||page==='CREATE')&&e.touches[0]){
-        const r=canvas.getBoundingClientRect();
-        const tx=e.touches[0].clientX-r.left,ty=e.touches[0].clientY-r.top;
+        const [tx,ty]=toDesign(e.touches[0].clientX,e.touches[0].clientY);
         const ir=authFieldRects;
         if(ir.un&&tx>=ir.un.x&&tx<=ir.un.x+ir.un.w&&ty>=ir.un.y&&ty<=ir.un.y+ir.un.h){
             hiddenUN.value=inputValues.username;hiddenUN.focus();activeInput='username';
@@ -1647,7 +1653,7 @@ function applyKbShift(){
     if(kbOpen&&(page==='LOGIN'||page==='CREATE')&&activeInput&&authFieldRects){
         const field=activeInput==='username'?authFieldRects.un:authFieldRects.pw;
         if(field){
-            const fieldBottom=field.y+field.h+30;
+            const fieldBottom=(field.y+field.h)*gameScale+gameOffY+30;
             const shift=Math.max(0,fieldBottom-window.visualViewport.height);
             canvas.style.transform=shift>0?`translateY(-${Math.round(shift)}px)`:'';
             return;
@@ -1661,17 +1667,17 @@ function loadImg(src){return new Promise((res,rej)=>{const i=new Image();i.onloa
 // Loading screen
 (()=>{
     // Background gradient
-    const bg=ctx.createRadialGradient(SCREEN_WM,SCREEN_HM,0,SCREEN_WM,SCREEN_HM,Math.max(SCREEN_WIDTH,SCREEN_HEIGHT)*0.8);
+    const bg=ctx.createRadialGradient(canvas.width/2,canvas.height/2,0,canvas.width/2,canvas.height/2,Math.max(canvas.width,canvas.height)*0.8);
     bg.addColorStop(0,'#0a1628');bg.addColorStop(1,'#000408');
-    ctx.fillStyle=bg;ctx.fillRect(0,0,SCREEN_WIDTH,SCREEN_HEIGHT);
+    ctx.fillStyle=bg;ctx.fillRect(0,0,canvas.width,canvas.height);
 
     // Ice crystal lines radiating from corners and center
     ctx.save();ctx.strokeStyle='rgba(100,180,255,0.07)';ctx.lineWidth=1;
-    const pts=[[0,0],[SCREEN_WIDTH,0],[0,SCREEN_HEIGHT],[SCREEN_WIDTH,SCREEN_HEIGHT],[SCREEN_WM,SCREEN_HM]];
+    const pts=[[0,0],[canvas.width,0],[0,canvas.height],[canvas.width,canvas.height],[canvas.width/2,canvas.height/2]];
     for(const [ox,oy] of pts){
         for(let a=0;a<Math.PI*2;a+=Math.PI/8){
             ctx.beginPath();ctx.moveTo(ox,oy);
-            ctx.lineTo(ox+Math.cos(a)*SCREEN_WIDTH,oy+Math.sin(a)*SCREEN_HEIGHT);
+            ctx.lineTo(ox+Math.cos(a)*canvas.width,oy+Math.sin(a)*canvas.height);
             ctx.stroke();
         }
     }
@@ -1690,23 +1696,23 @@ function loadImg(src){return new Promise((res,rej)=>{const i=new Image();i.onloa
         }
     }
     const flakes=[[0.15,0.2,60],[0.85,0.15,45],[0.08,0.75,50],[0.92,0.8,40],[0.5,0.12,35],[0.75,0.6,30]];
-    for(const[fx,fy,fr] of flakes) snowflake(SCREEN_WIDTH*fx,SCREEN_HEIGHT*fy,fr);
+    for(const[fx,fy,fr] of flakes) snowflake(canvas.width*fx,canvas.height*fy,fr);
     ctx.restore();
+    const cw=canvas.width,ch=canvas.height,cwm=cw/2,chm=ch/2;
 
     // Title
     ctx.save();
-    ctx.font='bold 72px monospace';ctx.textAlign='center';ctx.textBaseline='middle';
-    ctx.fillStyle='rgba(60,130,220,0.18)';ctx.fillText('ICE DRIFT',SCREEN_WM+4,SCREEN_HM-80+4);
-    const titleGrad=ctx.createLinearGradient(SCREEN_WM-200,SCREEN_HM-110,SCREEN_WM+200,SCREEN_HM-50);
+    ctx.font=`bold ${Math.floor(ch*0.13)}px monospace`;ctx.textAlign='center';ctx.textBaseline='middle';
+    ctx.fillStyle='rgba(60,130,220,0.18)';ctx.fillText('ICE DRIFT',cwm+4,chm-ch*0.15+4);
+    const titleGrad=ctx.createLinearGradient(cwm-200,chm-110,cwm+200,chm-50);
     titleGrad.addColorStop(0,'#a8d8ff');titleGrad.addColorStop(0.5,'#ffffff');titleGrad.addColorStop(1,'#7ec8e3');
-    ctx.fillStyle=titleGrad;ctx.fillText('ICE DRIFT',SCREEN_WM,SCREEN_HM-80);
+    ctx.fillStyle=titleGrad;ctx.fillText('ICE DRIFT',cwm,chm-ch*0.15);
     ctx.restore();
 
     // Loading bar track
-    const barW=Math.min(400,SCREEN_WIDTH*0.5),barH=6,barX=SCREEN_WM-barW/2,barY=SCREEN_HM+20;
+    const barW=Math.min(400,cw*0.5),barH=6,barX=cwm-barW/2,barY=chm+20;
     ctx.save();ctx.globalAlpha=0.25;ctx.fillStyle='#4488aa';
     ctx.beginPath();ctx.roundRect(barX,barY,barW,barH,3);ctx.fill();
-    // Animated-looking partial fill
     const fillGrad=ctx.createLinearGradient(barX,0,barX+barW*0.6,0);
     fillGrad.addColorStop(0,'#5bc8ff');fillGrad.addColorStop(1,'#a8eeff');
     ctx.globalAlpha=1;ctx.fillStyle=fillGrad;
@@ -1715,7 +1721,7 @@ function loadImg(src){return new Promise((res,rej)=>{const i=new Image();i.onloa
 
     // Loading text
     ctx.save();ctx.font='18px monospace';ctx.textAlign='center';ctx.textBaseline='middle';
-    ctx.fillStyle='rgba(160,210,255,0.7)';ctx.fillText('Loading textures...',SCREEN_WM,SCREEN_HM+50);
+    ctx.fillStyle='rgba(160,210,255,0.7)';ctx.fillText('Loading textures...',cwm,chm+50);
     ctx.restore();
 })();
 
@@ -1943,20 +1949,20 @@ Promise.all([
     function inRect(mx,my,bx,by,bw,bh){return mx>=bx&&mx<=bx+bw&&my>=by&&my<=by+bh;}
 
     window.addEventListener('resize',()=>{
-        const oldSWM=SCREEN_WM,oldSHM=SCREEN_HM;
         resizeCanvas();
-        INITIAL_CAR_X=(1600-SCREEN_WM)-Math.floor(CAR_WIDTH/2)+LEVEL_START_X[currentLevel];
-        INITIAL_CAR_Y=(900-SCREEN_HM)-Math.floor(CAR_HEIGHT/2)+LEVEL_START_Y[currentLevel];
-        if(page==='GAME'){player.xPos+=oldSWM-SCREEN_WM;player.yPos+=oldSHM-SCREEN_HM;}
         bg.rebuild();
         menuBg.rebuild();
-        player.resize();
     });
 
     let lastTime=0;
     function loop(now){
         const dt=lastTime?Math.min((now-lastTime)/(1000/60),3):1;
         lastTime=now;
+        // Fill letterbox areas then apply scale transform
+        ctx.setTransform(1,0,0,1,0,0);
+        ctx.fillStyle='#000';ctx.fillRect(0,0,canvas.width,canvas.height);
+        ctx.setTransform(gameScale,0,0,gameScale,gameOffX,gameOffY);
+        ctx.imageSmoothingEnabled=false;
         const mjp=mouseJustPressed; mouseJustPressed=false;
         const mjr=mouseJustReleased; mouseJustReleased=false;
         const sjp=shiftJustPressed;  shiftJustPressed=false;
