@@ -2328,7 +2328,7 @@ Promise.all([
                     ctx.fillRect(listX,ry,listW,rowH);ctx.restore();
                     const rank=String(i+1)+'.',rankW=rank.length*(4*3+3);
                     renderText(ctx,textSheet,rank,listX+10,ry+rowH/2-10,1,40,40,40);
-                    const uname=(lbRows[i].username||'UNKNOWN').toUpperCase(),unameW=uname.length*(4*3+3);
+                    const uname=lbRows[i].username||'unknown',unameW=uname.length*(4*3+3);
                     renderText(ctx,textSheet,uname,listX+60,ry+rowH/2-10,1,10,10,40);
                     const tstr=lbRows[i].time.toFixed(2)+'S',tstrW=tstr.length*(4*3+3);
                     renderText(ctx,textSheet,tstr,listX+listW-tstrW-10,ry+rowH/2-10,1,40,40,40);
