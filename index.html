@@ -3,7 +3,7 @@
 <head>
 <title>Ice Drift</title>
 <meta name="viewport" content="width=device-width,initial-scale=1,user-scalable=no">
-<style>body{margin:0;overflow:hidden;background:#000;touch-action:none;}canvas{display:block;}</style>
+<style>body{margin:0;overflow:hidden;background:#000;touch-action:none;}canvas{display:block;image-rendering:pixelated;image-rendering:crisp-edges;}</style>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.min.js"></script>
 </head>
 <body>
@@ -12,8 +12,9 @@
 <input id="hiddenPW" type="password" autocomplete="current-password" maxlength="32" style="position:fixed;opacity:0;pointer-events:none;top:50%;left:50%;width:1px;height:1px;font-size:16px;">
 <script>
 const BASE_W=1680;
-const _initScale=window.innerWidth/BASE_W;
-let SCREEN_WIDTH=BASE_W,SCREEN_HEIGHT=Math.round(window.innerHeight/_initScale),SCREEN_WM=BASE_W/2,SCREEN_HM=Math.round(window.innerHeight/_initScale)/2;
+let dpr=window.devicePixelRatio||1;
+const _initScale=(window.innerWidth*dpr)/BASE_W;
+let SCREEN_WIDTH=BASE_W,SCREEN_HEIGHT=Math.round((window.innerHeight*dpr)/_initScale),SCREEN_WM=BASE_W/2,SCREEN_HM=Math.round((window.innerHeight*dpr)/_initScale)/2;
 let gameScale=_initScale,gameOffX=0,gameOffY=0;
 const TILE_GRID_WIDTH=100,TILE_GRID_HEIGHT=100,TILE_SIZE=52;
 const CAR_WIDTH=45,CAR_HEIGHT=84;
@@ -1231,7 +1232,7 @@ class Background {
         for(let i=0;i<this.bh;i++)
             for(let j=0;j<this.bw;j++){
                 const r=this.rects[i][j];
-                ctx.drawImage(sheet,srcX,srcY,17,17,r.x-1,r.y-1,r.w+2,r.h+2);
+                ctx.drawImage(sheet,srcX,srcY,17,17,r.x-2,r.y-2,r.w+4,r.h+4);
             }
     }
 }
@@ -1266,7 +1267,7 @@ class MenuBackground {
         for(let i=0;i<this.gridH;i++)
             for(let j=0;j<this.gridW;j++){
                 const r=this.grid[i][j];
-                ctx.drawImage(sheet,7*17,0,17,17,r.x-1,r.y-1,r.w+2,r.h+2);
+                ctx.drawImage(sheet,7*17,0,17,17,r.x-2,r.y-2,r.w+4,r.h+4);
             }
     }
 }
@@ -1420,9 +1421,13 @@ const canvas=document.getElementById('c');
 const ctx=canvas.getContext('2d');
 
 function resizeCanvas(){
-    canvas.width=window.innerWidth; canvas.height=window.innerHeight;
-    gameScale=window.innerWidth/BASE_W;
-    SCREEN_HEIGHT=Math.round(window.innerHeight/gameScale);
+    dpr=window.devicePixelRatio||1;
+    canvas.width=Math.round(window.innerWidth*dpr);
+    canvas.height=Math.round(window.innerHeight*dpr);
+    canvas.style.width=window.innerWidth+'px';
+    canvas.style.height=window.innerHeight+'px';
+    gameScale=canvas.width/BASE_W;
+    SCREEN_HEIGHT=Math.round(canvas.height/gameScale);
     SCREEN_HM=SCREEN_HEIGHT/2;
     gameOffX=0; gameOffY=0;
     ctx.imageSmoothingEnabled=false;
@@ -1430,7 +1435,7 @@ function resizeCanvas(){
 resizeCanvas();
 
 mouseX=SCREEN_WM; mouseY=SCREEN_HM;
-function toDesign(cx,cy){const r=canvas.getBoundingClientRect();return[(cx-r.left-gameOffX)/gameScale,(cy-r.top-gameOffY)/gameScale];}
+function toDesign(cx,cy){const r=canvas.getBoundingClientRect();return[((cx-r.left)*dpr-gameOffX)/gameScale,((cy-r.top)*dpr-gameOffY)/gameScale];}
 canvas.addEventListener('mousemove',e=>{[mouseX,mouseY]=toDesign(e.clientX,e.clientY);});
 function updateFromTouch(e){e.preventDefault();const t=e.touches[0];[mouseX,mouseY]=toDesign(t.clientX,t.clientY);}
 
@@ -1653,7 +1658,7 @@ function applyKbShift(){
     if(kbOpen&&(page==='LOGIN'||page==='CREATE')&&activeInput&&authFieldRects){
         const field=activeInput==='username'?authFieldRects.un:authFieldRects.pw;
         if(field){
-            const fieldBottom=(field.y+field.h)*gameScale+gameOffY+30;
+            const fieldBottom=((field.y+field.h)*gameScale+gameOffY)/dpr+30;
             const shift=Math.max(0,fieldBottom-window.visualViewport.height);
             canvas.style.transform=shift>0?`translateY(-${Math.round(shift)}px)`:'';
             return;
