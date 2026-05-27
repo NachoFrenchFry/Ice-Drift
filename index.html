@@ -1573,6 +1573,17 @@ async function dbSignIn(username,password){
     }catch(e){authLoading=false;authError='Error: '+e.message;}
 }
 
+// Restore session on page load (e.g. after a redeployment)
+(async()=>{
+    const{data:{session}}=await db.auth.getSession();
+    if(session?.user){
+        currentUser=session.user;
+        await dbLoadProfile(session.user.id);
+        dbLoadRecords();
+        page='LEVELS';
+    }
+})();
+
 const hiddenUN=document.getElementById('hiddenUN');
 const hiddenPW=document.getElementById('hiddenPW');
 function syncHidden(field){
