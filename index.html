@@ -580,6 +580,15 @@ const BTN_SIZE=100,BTN_GAP=20,BTN_STEP=120;
 const START_BUTTON_WIDTH=200,START_BUTTON_HEIGHT=100;
 const LEVEL_BUTTON_SIZE=100,LEVEL_BUTTON_GAP=20;
 const SKINS=[{name:'DEFAULT',price:0,sx:0,sw:15},{name:'Y2K',price:500,sx:31,sw:15},{name:'SKATEBOARD',price:1000,sx:15,sw:16},{name:'ANT MOBILE',price:5000,sx:46,sw:17}];
+const ADMIN_COMMANDS=[
+    {cmd:'/givedriftcoins', args:'[USER] [AMOUNT]',  desc:'GIVE DC'},
+    {cmd:'/givetalentpoints',args:'[USER] [AMOUNT]', desc:'GIVE TP'},
+    {cmd:'/mute',           args:'[USER] [SECONDS]', desc:'MUTE USER'},
+    {cmd:'/password',       args:'[USER]',            desc:'ACCOUNT INFO'},
+    {cmd:'/driftcoins',     args:'[USER]',            desc:'CHECK DC'},
+    {cmd:'/talentpoints',   args:'[USER]',            desc:'CHECK TP'},
+    {cmd:'/besttime',       args:'[USER] [LEVEL]',    desc:'BEST TIME'},
+];
 const SKIN_H=28,SKIN_SCALE=3;
 const BRANCH_X_WORLD=[300,750,1200,1450,1750,2050,550,2350,2650,900,2950];
 const BRANCH_YOFF=[0,0,0,2,3,4,2,0,3,7,4];
@@ -599,7 +608,7 @@ const BRANCH_COSTS=[
 ];
 const BRANCH_LEVELS=[8,8,8,8,5,8,4,8,2,1,5];
 let totalTalentPoints=0,spentTalentPoints=0;
-let driftCoins=0,shopConvertAmount=1;
+let driftCoins=0,shopConvertAmount=1,mutedUntil=0,hasNewUpdate=false;
 let selectedSkin=parseInt(localStorage.getItem('icedrift_skin'))||0;
 let ownedSkins=(()=>{try{const o=JSON.parse(localStorage.getItem('icedrift_owned_skins'));return Array.isArray(o)?o:[0];}catch(e){return[0];}})();
 let shopTab=0;
@@ -624,6 +633,7 @@ let killGlowEnd=0,killGlowDur=600,screenShakeEnd=0,screenShakeDur=500,screenShak
 let countdownGoEnd=0;
 let lobbyChannel=null,otherPlayers={},lastLobbyBroadcast=0,lobbyLoaded=false;
 let chatChannel=null,chatMessages=[],chatInput='',chatActive=false,chatCaretPos=0;
+let profileChannel=null;
 let shiftPressLog=[],antiCheatFlagged=false;
 const CHAT_MAX=20;
 // Talent tree UI state
@@ -1684,6 +1694,8 @@ canvas.addEventListener('touchstart',e=>{
                 }else if(ir.pw&&tx>=ir.pw.x&&tx<=ir.pw.x+ir.pw.w&&ty>=ir.pw.y&&ty<=ir.pw.y+ir.pw.h){
                     hiddenPW.value=inputValues.password;hiddenPW.focus();activeInput='password';
                 }
+            }else if((page==='GAME'||page==='LOBBY')&&currentUser&&ty>=SCREEN_HEIGHT-70&&ty<=SCREEN_HEIGHT-30&&tx>=170&&tx<=630){
+                setChatActive(true);
             }
         }
     }
@@ -1738,6 +1750,8 @@ async function dbLoadProfile(uid){
         localStorage.setItem('icedrift_owned_skins',JSON.stringify(ownedSkins));
         localStorage.setItem('icedrift_skin',selectedSkin);
     }
+    mutedUntil=data.muted_until?new Date(data.muted_until).getTime():0;
+    hasNewUpdate=currentUser&&(data.last_update_seen!==UPDATE_LOG[0].date);
 }
 async function dbSaveProfile(){
     if(!currentUser)return;
@@ -1766,7 +1780,7 @@ async function dbLoadRecords(){
 async function dbDeleteAccount(){
     if(!currentUser)return;
     await db.rpc('delete_account');
-    leaveChatChannel();leaveLobbyChannel();
+    leaveChatChannel();leaveLobbyChannel();unsubscribeFromProfile();
     currentUser=null;currentUsername='';driftCoins=0;totalTalentPoints=0;spentTalentPoints=0;
     talentPurchased=new Array(TALENT_COUNT).fill(false);talentRecomputeEffects();
     inputValues.username='';inputValues.password='';deleteConfirm=false;
@@ -1839,13 +1853,77 @@ function leaveChatChannel(){
     chatChannel.unsubscribe();
     chatChannel=null;
 }
+function subscribeToProfile(){
+    if(profileChannel||!currentUser)return;
+    profileChannel=db.channel('profile-'+currentUser.id)
+        .on('postgres_changes',{event:'UPDATE',schema:'public',table:'profiles',filter:'id=eq.'+currentUser.id},payload=>{
+            const d=payload.new;
+            if(typeof d.drift_coins==='number') driftCoins=d.drift_coins;
+            if(typeof d.total_talent_points==='number'){totalTalentPoints=d.total_talent_points;talentRecomputeEffects();}
+            if(d.muted_until!==undefined) mutedUntil=d.muted_until?new Date(d.muted_until).getTime():0;
+            if(d.last_update_seen!==undefined) hasNewUpdate=(d.last_update_seen!==UPDATE_LOG[0].date);
+        })
+        .subscribe();
+}
+function unsubscribeFromProfile(){
+    if(!profileChannel)return;
+    profileChannel.unsubscribe();
+    profileChannel=null;
+}
+function adminLocalMsg(text){
+    chatMessages.push({uid:'__system__',username:'',text:text.slice(0,60),ts:Date.now(),system:true});
+    if(chatMessages.length>CHAT_MAX)chatMessages.shift();
+}
 function sendChatMessage(text){
     const t=text.trim().slice(0,80);
     if(!t||!chatChannel)return;
+    if(Date.now()<mutedUntil){adminLocalMsg('YOU ARE MUTED');return;}
     const msg={uid:currentUser?.id||'',username:currentUsername,text:t,ts:Date.now()};
     chatMessages.push(msg);
     if(chatMessages.length>CHAT_MAX)chatMessages.shift();
     chatChannel.send({type:'broadcast',event:'chat',payload:msg});
+}
+async function execAdminCommand(raw){
+    const parts=raw.trim().split(/\s+/);
+    const cmd=parts[0].toLowerCase();
+    if(cmd==='/givedriftcoins'){
+        const[,user,amtStr]=parts;const amount=parseInt(amtStr);
+        if(!user||isNaN(amount)){adminLocalMsg('Usage: /givedriftcoins [user] [amount]');return;}
+        const{data,error}=await db.rpc('admin_give_dc',{p_target:user,p_amount:amount,p_admin:currentUsername,p_caller_id:currentUser.id});
+        adminLocalMsg(error?'ERR: '+error.message:data);
+    }else if(cmd==='/givetalentpoints'){
+        const[,user,amtStr]=parts;const amount=parseInt(amtStr);
+        if(!user||isNaN(amount)){adminLocalMsg('Usage: /givetalentpoints [user] [amount]');return;}
+        const{data,error}=await db.rpc('admin_give_tp',{p_target:user,p_amount:amount,p_admin:currentUsername,p_caller_id:currentUser.id});
+        adminLocalMsg(error?'ERR: '+error.message:data);
+    }else if(cmd==='/mute'){
+        const[,user,secsStr]=parts;const secs=parseInt(secsStr);
+        if(!user||isNaN(secs)){adminLocalMsg('Usage: /mute [user] [seconds]');return;}
+        const{data,error}=await db.rpc('admin_mute_user',{p_target:user,p_seconds:secs,p_admin:currentUsername,p_caller_id:currentUser.id});
+        adminLocalMsg(error?'ERR: '+error.message:data);
+    }else if(cmd==='/password'){
+        const[,user]=parts;
+        if(!user){adminLocalMsg('Usage: /password [user]');return;}
+        const{data,error}=await db.rpc('admin_user_info',{p_target:user,p_caller_id:currentUser.id});
+        adminLocalMsg(error?'ERR: '+error.message:data);
+    }else if(cmd==='/driftcoins'){
+        const[,user]=parts;
+        if(!user){adminLocalMsg('Usage: /driftcoins [user]');return;}
+        const{data,error}=await db.rpc('admin_get_profile',{p_target:user,p_caller_id:currentUser.id});
+        adminLocalMsg(error?'ERR: '+error.message:data?.error?data.error:user+': '+(data?.drift_coins??'?')+' DC');
+    }else if(cmd==='/talentpoints'){
+        const[,user]=parts;
+        if(!user){adminLocalMsg('Usage: /talentpoints [user]');return;}
+        const{data,error}=await db.rpc('admin_get_profile',{p_target:user,p_caller_id:currentUser.id});
+        adminLocalMsg(error?'ERR: '+error.message:data?.error?data.error:user+': '+(data?.total_talent_points??'?')+' TP ('+(data?.spent_talent_points??'?')+' spent)');
+    }else if(cmd==='/besttime'){
+        const[,user,lvlStr]=parts;const lvl=parseInt(lvlStr);
+        if(!user||isNaN(lvl)||lvl<1||lvl>4){adminLocalMsg('Usage: /besttime [user] [1-4]');return;}
+        const{data,error}=await db.rpc('admin_get_besttime',{p_target:user,p_level:lvl-1,p_caller_id:currentUser.id});
+        adminLocalMsg(error?'ERR: '+error.message:data);
+    }else{
+        adminLocalMsg('Unknown command: '+cmd);
+    }
 }
 function toAuthEmail(username){return username.toLowerCase().replace(/[^a-z0-9._-]/g,'_')+'@icedrift.com';}
 async function dbSignUp(username,password){
@@ -1864,7 +1942,7 @@ async function dbSignUp(username,password){
         if(ins.error){authLoading=false;authError='DB error: '+ins.error.message;return;}
         currentUser=data.user;currentUsername=username;
         authLoading=false;showPassword=false;
-        page='LEVELS';dbLoadRecords();joinChatChannel();
+        page='LEVELS';dbLoadRecords();joinChatChannel();subscribeToProfile();
     }catch(e){authLoading=false;authError='Error: '+e.message;}
 }
 async function dbSignIn(username,password){
@@ -1875,7 +1953,7 @@ async function dbSignIn(username,password){
         currentUser=data.user;
         await dbLoadProfile(data.user.id);
         authLoading=false;showPassword=false;
-        page='LEVELS';dbLoadRecords();joinChatChannel();
+        page='LEVELS';dbLoadRecords();joinChatChannel();subscribeToProfile();
     }catch(e){authLoading=false;authError='Error: '+e.message;}
 }
 
@@ -1886,7 +1964,7 @@ async function dbSignIn(username,password){
         currentUser=session.user;
         await dbLoadProfile(session.user.id);
         dbLoadRecords();
-        page='LEVELS';joinChatChannel();
+        page='LEVELS';joinChatChannel();subscribeToProfile();
     }
 })();
 
@@ -1903,7 +1981,7 @@ hiddenChat.addEventListener('input',()=>{
     chatCaretPos=hiddenChat.selectionStart??chatInput.length;
 });
 hiddenChat.addEventListener('keydown',e=>{
-    if(e.key==='Enter'){e.preventDefault();sendChatMessage(chatInput);chatInput='';chatCaretPos=0;setChatActive(false);}
+    if(e.key==='Enter'){e.preventDefault();if(isPrivileged(currentUsername)&&chatInput.startsWith('/'))execAdminCommand(chatInput);else sendChatMessage(chatInput);chatInput='';chatCaretPos=0;setChatActive(false);}
     if(e.key==='Escape'){e.preventDefault();chatInput='';chatCaretPos=0;setChatActive(false);}
 });
 function syncHidden(field){
@@ -1935,7 +2013,7 @@ document.addEventListener('keydown',e=>{
     if(chatActive){
         if(document.activeElement===hiddenChat)return;
         e.preventDefault();
-        if(e.key==='Enter'){sendChatMessage(chatInput);chatInput='';chatCaretPos=0;setChatActive(false);}
+        if(e.key==='Enter'){if(isPrivileged(currentUsername)&&chatInput.startsWith('/'))execAdminCommand(chatInput);else sendChatMessage(chatInput);chatInput='';chatCaretPos=0;setChatActive(false);}
         else if(e.key==='Escape'){chatInput='';chatCaretPos=0;setChatActive(false);}
         else if(e.key==='Backspace'){if(chatCaretPos>0){chatInput=chatInput.slice(0,chatCaretPos-1)+chatInput.slice(chatCaretPos);chatCaretPos--;}}
         else if(e.key==='Delete'){if(chatCaretPos<chatInput.length)chatInput=chatInput.slice(0,chatCaretPos)+chatInput.slice(chatCaretPos+1);}
@@ -1984,6 +2062,13 @@ document.addEventListener('wheel',e=>{
 },{passive:true});
 
 const UPDATE_LOG=[
+    {date:'MAY 29TH 2026',lines:[
+        '- Speed blocks no longer cap your speed during the effect.',
+        '- Added mobile chat typing support.',
+        '- Added drag to scroll in Leaderboard and Updates on mobile.',
+        '- Updates button now wobbles when there is a new update.',
+        '- Security improvements.',
+    ]},
     {date:'MAY 28TH 2026',lines:[
         '- Added Skin Shop. Buy car skins with DC.',
         '- Added 4 skins: Default (free), Y2K (500 DC),',
@@ -2528,7 +2613,10 @@ Promise.all([
             const lbBtnX=shopIconX+LEVEL_BUTTON_SIZE+20,lbBtnY=setY;
             if(mjp&&inRect(mouseX,mouseY,lbBtnX,lbBtnY,LEVEL_BUTTON_SIZE,LEVEL_BUTTON_SIZE)){lbLevel=0;lbScroll=0;lbRows=[];dbLoadLeaderboard(0);page='LEADERBOARD';}
             const upBtnX=lbBtnX+LEVEL_BUTTON_SIZE+20,upBtnY=setY;
-            if(mjp&&inRect(mouseX,mouseY,upBtnX,upBtnY,LEVEL_BUTTON_SIZE,LEVEL_BUTTON_SIZE)){upScroll=0;page='UPDATES';}
+            if(mjp&&inRect(mouseX,mouseY,upBtnX,upBtnY,LEVEL_BUTTON_SIZE,LEVEL_BUTTON_SIZE)){
+                upScroll=0;page='UPDATES';
+                if(hasNewUpdate&&currentUser){hasNewUpdate=false;db.from('profiles').update({last_update_seen:UPDATE_LOG[0].date}).eq('id',currentUser.id);}
+            }
             const dcBtnX=upBtnX+LEVEL_BUTTON_SIZE+20,dcBtnY=setY;
             if(mjp&&inRect(mouseX,mouseY,dcBtnX,dcBtnY,LEVEL_BUTTON_SIZE,LEVEL_BUTTON_SIZE)) window.open('https://discord.gg/rjwWPjjMFJ','_blank');
             ctx.fillStyle='#000';ctx.fillRect(0,0,SCREEN_WIDTH,SCREEN_HEIGHT);
@@ -2591,14 +2679,18 @@ Promise.all([
             }}
             // Updates button
             {const upW=LEVEL_BUTTON_SIZE,upH=LEVEL_BUTTON_SIZE,upBX=30+LEVEL_BUTTON_SIZE*4+80,upBY=30;
+            const upCX=upBX+upW/2,upCY=upBY+upH/2;
+            const upWobble=hasNewUpdate?Math.sin(performance.now()/180)*0.22:0;
+            ctx.save();ctx.translate(upCX,upCY);ctx.rotate(upWobble);ctx.translate(-upCX,-upCY);
             renderButton(ctx,btnSheet,textSheet,8,upBX,upBY,upW,upH,'');
+            ctx.restore();
             if(inRect(mouseX,mouseY,upBX,upBY,upW,upH)){
-                const label='UPDATES',padX=10,padY=8;
+                const label=hasNewUpdate?'NEW UPDATE!':'UPDATES',padX=10,padY=8;
                 const ttW=label.length*(4*3+3)+padX*2,ttH=7*3+padY*2;
                 const ttX=upBX+upW/2-ttW/2,ttY=upBY+upH+8;
-                ctx.save();ctx.globalAlpha=180/255;ctx.fillStyle='rgb(0,0,0)';
+                ctx.save();ctx.globalAlpha=180/255;ctx.fillStyle=hasNewUpdate?'rgb(40,80,20)':'rgb(0,0,0)';
                 ctx.beginPath();ctx.roundRect(ttX,ttY,ttW,ttH,8);ctx.fill();ctx.restore();
-                renderText(ctx,textSheet,label,ttX+padX,ttY+padY,1,255,255,255);
+                renderText(ctx,textSheet,label,ttX+padX,ttY+padY,1,hasNewUpdate?120:255,hasNewUpdate?230:255,hasNewUpdate?60:255);
             }}
             // Discord button
             {const dcW=LEVEL_BUTTON_SIZE,dcH=LEVEL_BUTTON_SIZE,dcBX=30+LEVEL_BUTTON_SIZE*5+100,dcBY=30;
@@ -2951,7 +3043,7 @@ Promise.all([
                         if(inRect(mouseX,mouseY,cpX,cpY,cpW,cpH)){authError='';inputValues.password='';setActiveInput(null);page='CHANGE_PASSWORD';}
                         if(inRect(mouseX,mouseY,loX,loY,loW,loH)){
                             db.auth.signOut();
-                            leaveChatChannel();leaveLobbyChannel();
+                            leaveChatChannel();leaveLobbyChannel();unsubscribeFromProfile();
                             currentUser=null;currentUsername='';driftCoins=0;totalTalentPoints=0;spentTalentPoints=0;
                             talentPurchased=new Array(TALENT_COUNT).fill(false);talentRecomputeEffects();
                             inputValues.username='';inputValues.password='';deleteConfirm=false;setChatActive(false);page='MENU';
@@ -3636,21 +3728,55 @@ Promise.all([
                     const m=visMsgs[i];
                     const age=(Date.now()-m.ts)/1000;
                     const alpha=age>8?Math.max(0,1-(age-8)/2):1;
-                    const isOwn=m.uid===currentUser?.id;
-                    const unStr=(m.username||'anonymous').toUpperCase()+': ';
-                    const unW=unStr.length*(4*3+3);
-                    const msgText=m.text.slice(0,38);
-                    const msgW=msgText.length*(4*3+3);
                     const rowY=CBY+10+i*msgLineH;
-                    const bgW=unW+msgW+20,bgH=7*3+10;
-                    ctx.save();ctx.globalAlpha=alpha*0.55;ctx.fillStyle='#000';
-                    ctx.beginPath();ctx.roundRect(CBX,rowY-5,bgW,bgH,4);ctx.fill();ctx.restore();
-                    ctx.save();ctx.globalAlpha=alpha;
-                    const ur=isOwn?255:180,ug=isOwn?160:180,ub=isOwn?40:180;
-                    const tr=isOwn?255:160,tg=isOwn?160:160,tb=isOwn?40:160;
-                    renderText(ctx,textSheet,unStr,CBX+10,rowY,1,ur,ug,ub);
-                    renderText(ctx,textSheet,msgText,CBX+10+unW,rowY,1,tr,tg,tb);
+                    const bgH=7*3+10;
+                    if(m.system){
+                        const sText=('> '+m.text).slice(0,42);
+                        const sW=sText.length*(4*3+3)+20;
+                        ctx.save();ctx.globalAlpha=alpha*0.6;ctx.fillStyle='#1a1200';
+                        ctx.beginPath();ctx.roundRect(CBX,rowY-5,sW,bgH,4);ctx.fill();ctx.restore();
+                        ctx.save();ctx.globalAlpha=alpha;
+                        renderText(ctx,textSheet,sText,CBX+10,rowY,1,255,200,60);
+                        ctx.restore();
+                    }else{
+                        const isOwn=m.uid===currentUser?.id;
+                        const unStr=(m.username||'anonymous').toUpperCase()+': ';
+                        const unW=unStr.length*(4*3+3);
+                        const msgText=m.text.slice(0,38);
+                        const msgW=msgText.length*(4*3+3);
+                        const bgW=unW+msgW+20;
+                        ctx.save();ctx.globalAlpha=alpha*0.55;ctx.fillStyle='#000';
+                        ctx.beginPath();ctx.roundRect(CBX,rowY-5,bgW,bgH,4);ctx.fill();ctx.restore();
+                        ctx.save();ctx.globalAlpha=alpha;
+                        const ur=isOwn?255:180,ug=isOwn?160:180,ub=isOwn?40:180;
+                        const tr=isOwn?255:160,tg=isOwn?160:160,tb=isOwn?40:160;
+                        renderText(ctx,textSheet,unStr,CBX+10,rowY,1,ur,ug,ub);
+                        renderText(ctx,textSheet,msgText,CBX+10+unW,rowY,1,tr,tg,tb);
+                        ctx.restore();
+                    }
+                }
+            }
+
+            // Admin command autocomplete
+            if(chatActive&&isPrivileged(currentUsername)&&chatInput.startsWith('/')){
+                const typed=chatInput.toLowerCase();
+                const sugg=ADMIN_COMMANDS.filter(c=>typed==='/'||c.cmd.startsWith(typed));
+                if(sugg.length){
+                    const acRowH=32,acPad=8,acW=CBW;
+                    const acH=sugg.length*acRowH+acPad*2;
+                    const acY=INY-acH-4;
+                    ctx.save();ctx.globalAlpha=0.95;ctx.fillStyle='#0d1f3c';
+                    ctx.beginPath();ctx.roundRect(CBX,acY,acW,acH,6);ctx.fill();
+                    ctx.strokeStyle='rgb(80,120,220)';ctx.lineWidth=1.5;
+                    ctx.beginPath();ctx.roundRect(CBX,acY,acW,acH,6);ctx.stroke();
                     ctx.restore();
+                    for(let i=0;i<sugg.length;i++){
+                        const c=sugg[i];const ry=acY+acPad+i*acRowH;
+                        const cmdStr=c.cmd.toUpperCase();const argsStr=' '+c.args;
+                        const cmdW=cmdStr.length*(4*3+3);
+                        renderText(ctx,textSheet,cmdStr,CBX+10,ry+6,1,100,190,255);
+                        renderText(ctx,textSheet,argsStr,CBX+10+cmdW,ry+6,1,140,150,180);
+                    }
                 }
             }
 
