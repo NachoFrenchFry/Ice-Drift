@@ -1809,7 +1809,7 @@ function joinLobbyChannel(){
     lobbyChannel
         .on('broadcast',{event:'pos'},({payload})=>{
             if(payload.uid===currentUser?.id)return;
-            otherPlayers[payload.uid]={x:payload.x,y:payload.y,dir:payload.dir||270,username:payload.username||'',ts:performance.now()};
+            otherPlayers[payload.uid]={x:payload.x,y:payload.y,dir:payload.dir||270,username:payload.username||'',skin:payload.skin||0,bsx:payload.bsx||1,bsy:payload.bsy||1,ts:performance.now()};
         })
         .on('presence',{event:'leave'},({leftPresences})=>{
             for(const p of leftPresences)delete otherPlayers[p.key];
@@ -3389,7 +3389,9 @@ Promise.all([
             {const now=performance.now();
             if(currentUser&&now-lastLobbyBroadcast>50){
                 lastLobbyBroadcast=now;
-                lobbyChannel?.send({type:'broadcast',event:'pos',payload:{uid:currentUser.id,x:player.xPos+SCREEN_WM,y:player.yPos+SCREEN_HM,dir:player.drawDir,username:currentUsername}});
+                const _bsT=Math.min((now-boostStretchStart)/500,1);
+                const _bsVal=_bsT<1?Math.exp(-3.5*_bsT)*Math.cos(2.2*Math.PI*_bsT):0;
+                lobbyChannel?.send({type:'broadcast',event:'pos',payload:{uid:currentUser.id,x:player.xPos+SCREEN_WM,y:player.yPos+SCREEN_HM,dir:player.drawDir,username:currentUsername,skin:selectedSkin,bsx:parseFloat((1-0.35*_bsVal).toFixed(3)),bsy:parseFloat((1+0.45*_bsVal).toFixed(3))}});
             }}
 
             // Remove stale other players
@@ -3457,19 +3459,23 @@ Promise.all([
                 ctx.restore();
             }}
             // Other players
-            {const sOff=5,pivY=10,visW=CAR_WIDTH,visH=CAR_HEIGHT;
+            {const sOff=5,pivY=10;
             for(const[uid,op]of Object.entries(otherPlayers)){
                 const sx=op.x-player.xPos;
                 const sy=op.y-player.yPos;
                 const dir=(op.dir||270)*Math.PI/180;
+                const opSk=SKINS[Math.min(op.skin||0,SKINS.length-1)];
+                const opW=opSk.sw*SKIN_SCALE,opH=CAR_HEIGHT;
+                const bsX=op.bsx||1,bsY=op.bsy||1;
                 // Shadow
-                ctx.save();ctx.globalAlpha=50/255;ctx.filter='brightness(0)';
-                ctx.translate(sx-sOff,sy+sOff-pivY);ctx.rotate(dir);
-                ctx.drawImage(carImg,-visW/2,-(visH/2-pivY),visW,visH);
+                ctx.save();ctx.globalAlpha=50/255;ctx.filter='brightness(0)';ctx.imageSmoothingEnabled=false;
+                ctx.translate(sx-sOff,sy+sOff-pivY);ctx.rotate(dir);ctx.scale(bsX,bsY);
+                ctx.drawImage(carImg,opSk.sx,0,opSk.sw,SKIN_H,-opW/2,-opH/2,opW,opH);
                 ctx.restore();
                 // Car texture
-                ctx.save();ctx.translate(sx,sy-pivY);ctx.rotate(dir);
-                ctx.drawImage(carImg,-visW/2,-(visH/2-pivY),visW,visH);
+                ctx.save();ctx.imageSmoothingEnabled=false;
+                ctx.translate(sx,sy-pivY);ctx.rotate(dir);ctx.scale(bsX,bsY);
+                ctx.drawImage(carImg,opSk.sx,0,opSk.sw,SKIN_H,-opW/2,-opH/2,opW,opH);
                 ctx.restore();
                 // Name label
                 if(op.username){
