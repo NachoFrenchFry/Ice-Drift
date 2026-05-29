@@ -10,6 +10,7 @@
 <canvas id="c"></canvas>
 <input id="hiddenUN" type="text" autocomplete="username" autocorrect="off" autocapitalize="off" spellcheck="false" maxlength="32" style="position:fixed;opacity:0;pointer-events:none;top:50%;left:50%;width:1px;height:1px;font-size:16px;">
 <input id="hiddenPW" type="password" autocomplete="current-password" maxlength="32" style="position:fixed;opacity:0;pointer-events:none;top:50%;left:50%;width:1px;height:1px;font-size:16px;">
+<input id="hiddenChat" type="text" autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false" maxlength="80" style="position:fixed;opacity:0;pointer-events:none;top:80%;left:50%;width:1px;height:1px;font-size:16px;">
 <script>
 const BASE_W=1680;
 let dpr=window.devicePixelRatio||1;
@@ -1892,6 +1893,20 @@ async function dbSignIn(username,password){
 
 const hiddenUN=document.getElementById('hiddenUN');
 const hiddenPW=document.getElementById('hiddenPW');
+const hiddenChat=document.getElementById('hiddenChat');
+function setChatActive(val){
+    chatActive=val;
+    if(val){hiddenChat.value=chatInput;hiddenChat.setSelectionRange(chatCaretPos,chatCaretPos);hiddenChat.focus();}
+    else{hiddenChat.blur();}
+}
+hiddenChat.addEventListener('input',()=>{
+    chatInput=hiddenChat.value.slice(0,80);
+    chatCaretPos=hiddenChat.selectionStart??chatInput.length;
+});
+hiddenChat.addEventListener('keydown',e=>{
+    if(e.key==='Enter'){e.preventDefault();sendChatMessage(chatInput);chatInput='';chatCaretPos=0;setChatActive(false);}
+    if(e.key==='Escape'){e.preventDefault();chatInput='';chatCaretPos=0;setChatActive(false);}
+});
 function syncHidden(field){
     const el=field==='username'?hiddenUN:hiddenPW;
     el.value=inputValues[field];
@@ -1919,9 +1934,10 @@ hiddenPW.addEventListener('keydown',e=>{
 });
 document.addEventListener('keydown',e=>{
     if(chatActive){
+        if(document.activeElement===hiddenChat)return;
         e.preventDefault();
-        if(e.key==='Enter'){sendChatMessage(chatInput);chatInput='';chatCaretPos=0;chatActive=false;}
-        else if(e.key==='Escape'){chatInput='';chatCaretPos=0;chatActive=false;}
+        if(e.key==='Enter'){sendChatMessage(chatInput);chatInput='';chatCaretPos=0;setChatActive(false);}
+        else if(e.key==='Escape'){chatInput='';chatCaretPos=0;setChatActive(false);}
         else if(e.key==='Backspace'){if(chatCaretPos>0){chatInput=chatInput.slice(0,chatCaretPos-1)+chatInput.slice(chatCaretPos);chatCaretPos--;}}
         else if(e.key==='Delete'){if(chatCaretPos<chatInput.length)chatInput=chatInput.slice(0,chatCaretPos)+chatInput.slice(chatCaretPos+1);}
         else if(e.key==='ArrowLeft'){if(chatCaretPos>0)chatCaretPos--;}
@@ -1957,7 +1973,7 @@ document.addEventListener('keydown',e=>{
     }}
     if(e.key==='Alt'){showHitboxes=true;}
     if((e.key==='r'||e.key==='R')&&page==='GAME'){levelLoaded=false;}
-    if(e.key==='Enter'&&currentUser){chatActive=true;}
+    if(e.key==='Enter'&&currentUser){setChatActive(true);}
 });
 document.addEventListener('keyup',e=>{
     if(e.key==='Shift') shiftWasDown=false;
@@ -2935,7 +2951,7 @@ Promise.all([
                             leaveChatChannel();leaveLobbyChannel();
                             currentUser=null;currentUsername='';driftCoins=0;totalTalentPoints=0;spentTalentPoints=0;
                             talentPurchased=new Array(TALENT_COUNT).fill(false);talentRecomputeEffects();
-                            inputValues.username='';inputValues.password='';deleteConfirm=false;chatActive=false;page='MENU';
+                            inputValues.username='';inputValues.password='';deleteConfirm=false;setChatActive(false);page='MENU';
                         }
                         if(inRect(mouseX,mouseY,delX,delY,delW,delH)) deleteConfirm=!deleteConfirm;
                     }
@@ -3655,8 +3671,8 @@ Promise.all([
 
             // Click to activate / deactivate
             if(mjp){
-                if(inRect(mouseX,mouseY,CBX,INY,CBW,INH)) chatActive=true;
-                else if(chatActive&&!inRect(mouseX,mouseY,CBX,CBY,CBW,INY+INH-CBY)) chatActive=false;
+                if(inRect(mouseX,mouseY,CBX,INY,CBW,INH)) setChatActive(true);
+                else if(chatActive&&!inRect(mouseX,mouseY,CBX,CBY,CBW,INY+INH-CBY)) setChatActive(false);
             }
         }
 
