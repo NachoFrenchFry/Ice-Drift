@@ -608,7 +608,7 @@ const BRANCH_COSTS=[
 ];
 const BRANCH_LEVELS=[8,8,8,8,5,8,4,8,2,1,5];
 let totalTalentPoints=0,spentTalentPoints=0;
-let driftCoins=0,shopConvertAmount=1,mutedUntil=0,hasNewUpdate=false;
+let driftCoins=0,shopConvertAmount=1,mutedUntil=0,hasNewUpdate=false,lastUpdateSeen=null;
 let selectedSkin=parseInt(localStorage.getItem('icedrift_skin'))||0;
 let ownedSkins=(()=>{try{const o=JSON.parse(localStorage.getItem('icedrift_owned_skins'));return Array.isArray(o)?o:[0];}catch(e){return[0];}})();
 let shopTab=0;
@@ -1749,7 +1749,8 @@ async function dbLoadProfile(uid){
         localStorage.setItem('icedrift_skin',selectedSkin);
     }
     mutedUntil=data.muted_until?new Date(data.muted_until).getTime():0;
-    hasNewUpdate=currentUser&&(data.last_update_seen!==UPDATE_LOG[0].date);
+    lastUpdateSeen=data.last_update_seen||null;
+    hasNewUpdate=currentUser&&(lastUpdateSeen!==UPDATE_LOG[0].date);
 }
 async function dbSaveProfile(){
     if(!currentUser)return;
@@ -1759,6 +1760,7 @@ async function dbSaveProfile(){
         talents_purchased:talentPurchased,
         selected_skin:selectedSkin,
         owned_skins:ownedSkins,
+        last_update_seen:lastUpdateSeen,
         updated_at:new Date().toISOString()
     }).eq('id',currentUser.id);
 }
@@ -2612,7 +2614,7 @@ Promise.all([
             const upBtnX=lbBtnX+LEVEL_BUTTON_SIZE+20,upBtnY=setY;
             if(mjp&&inRect(mouseX,mouseY,upBtnX,upBtnY,LEVEL_BUTTON_SIZE,LEVEL_BUTTON_SIZE)){
                 upScroll=0;page='UPDATES';
-                if(hasNewUpdate&&currentUser){hasNewUpdate=false;db.from('profiles').update({last_update_seen:UPDATE_LOG[0].date}).eq('id',currentUser.id);}
+                if(hasNewUpdate&&currentUser){hasNewUpdate=false;lastUpdateSeen=UPDATE_LOG[0].date;dbSaveProfile();}
             }
             const dcBtnX=upBtnX+LEVEL_BUTTON_SIZE+20,dcBtnY=setY;
             if(mjp&&inRect(mouseX,mouseY,dcBtnX,dcBtnY,LEVEL_BUTTON_SIZE,LEVEL_BUTTON_SIZE)) window.open('https://discord.gg/rjwWPjjMFJ','_blank');
