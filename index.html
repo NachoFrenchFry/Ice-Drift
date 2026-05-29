@@ -3459,7 +3459,7 @@ Promise.all([
                 ctx.restore();
             }}
             // Other players
-            {const sOff=5,pivY=10;
+            {const sOff=5,pivY=10,visH=CAR_HEIGHT;
             for(const[uid,op]of Object.entries(otherPlayers)){
                 const sx=op.x-player.xPos;
                 const sy=op.y-player.yPos;
