@@ -685,6 +685,7 @@ function talentTotalCostToBuy(id){
     if(b===6)add(0,2);
     if(b===8)add(7,3);
     if(b===9)add(2,7);
+    if(b===10){add(7,3);add(8,1);}
     for(let x=0;x<=l;x++){const tid=b*LEVELS_PER_BRANCH+x;if(!talentPurchased[tid])total+=talentCost(b,x);}
     return total;
 }
@@ -699,7 +700,7 @@ function talentAutoBuyCount(id){
     if(b===6)cnt(0,2);
     if(b===8)cnt(7,3);
     if(b===9)cnt(2,7);
-    if(b===10)cnt(8,1);
+    if(b===10){cnt(7,3);cnt(8,1);}
     for(let x=0;x<l;x++)if(!talentPurchased[b*LEVELS_PER_BRANCH+x])n++;
     return n;
 }
