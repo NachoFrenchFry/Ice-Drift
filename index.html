@@ -1893,7 +1893,11 @@ function unsubscribeFromProfile(){
     profileChannel.unsubscribe();
     profileChannel=null;
 }
-function subscribeToVersion(){
+async function subscribeToVersion(){
+    const{data}=await db.from('game_version').select('version').eq('id',1).single();
+    if(data&&data.version!==UPDATE_LOG[0].date){
+        await db.from('game_version').update({version:UPDATE_LOG[0].date,updated_at:new Date().toISOString()}).eq('id',1);
+    }
     db.channel('game-version-watch')
         .on('postgres_changes',{event:'UPDATE',schema:'public',table:'game_version'},()=>{location.reload();})
         .subscribe();
