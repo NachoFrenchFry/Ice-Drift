@@ -3513,12 +3513,10 @@ Promise.all([
                 ctx.fillStyle=grd;ctx.fillRect(0,0,SCREEN_WIDTH,SCREEN_HEIGHT);
             }}
             {const _kgt=performance.now();if(_kgt<killGlowEnd){
-                const _kgel=killGlowDur-(killGlowEnd-_kgt),_kgrem=killGlowEnd-_kgt;
-                const _fa=Math.min(1,Math.min(_kgel/300,_kgrem/300));
                 const grd=ctx.createRadialGradient(SCREEN_WM,SCREEN_HM,Math.min(SCREEN_WIDTH,SCREEN_HEIGHT)*0.1,SCREEN_WM,SCREEN_HM,Math.max(SCREEN_WIDTH,SCREEN_HEIGHT)*0.8);
                 grd.addColorStop(0,'rgba(255,0,0,0)');
-                grd.addColorStop(0.5,`rgba(255,0,0,${(_fa*0.45).toFixed(2)})`);
-                grd.addColorStop(1,`rgba(255,0,0,${(_fa*0.8).toFixed(2)})`);
+                grd.addColorStop(0.5,'rgba(255,0,0,0.45)');
+                grd.addColorStop(1,'rgba(255,0,0,0.8)');
                 ctx.fillStyle=grd;ctx.fillRect(0,0,SCREEN_WIDTH,SCREEN_HEIGHT);
             }}
 
