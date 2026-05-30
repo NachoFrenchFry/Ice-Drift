@@ -552,7 +552,8 @@ function getMobBoostRect(){return{x:SCREEN_WIDTH-150,y:SCREEN_HEIGHT-150,w:120,h
 let showHitboxes=false;
 // Auth state
 const DEVELOPERS=['nachofrenchfry'];
-const ADMINS=['cookery','19k','TheCurseKing'];
+const ADMINS=['cookery','19k','TheCurseKing','notantanthony'];
+const BANNED_LB=['h4ck3r'];
 function isDeveloper(u){return DEVELOPERS.includes((u||'').toLowerCase());}
 function isAdmin(u){return ADMINS.includes((u||'').toLowerCase());}
 function isPrivileged(u){return isDeveloper(u)||isAdmin(u);}
@@ -581,13 +582,16 @@ const START_BUTTON_WIDTH=200,START_BUTTON_HEIGHT=100;
 const LEVEL_BUTTON_SIZE=100,LEVEL_BUTTON_GAP=20;
 const SKINS=[{name:'DEFAULT',price:0,sx:0,sw:15},{name:'Y2K',price:500,sx:31,sw:15},{name:'SKATEBOARD',price:1000,sx:15,sw:16},{name:'ANT MOBILE',price:5000,sx:46,sw:17}];
 const ADMIN_COMMANDS=[
-    {cmd:'/givedriftcoins', args:'[USER] [AMOUNT]',  desc:'GIVE DC'},
-    {cmd:'/givetalentpoints',args:'[USER] [AMOUNT]', desc:'GIVE TP'},
-    {cmd:'/mute',           args:'[USER] [SECONDS]', desc:'MUTE USER'},
-    {cmd:'/password',       args:'[USER]',            desc:'ACCOUNT INFO'},
-    {cmd:'/driftcoins',     args:'[USER]',            desc:'CHECK DC'},
-    {cmd:'/talentpoints',   args:'[USER]',            desc:'CHECK TP'},
-    {cmd:'/besttime',       args:'[USER] [LEVEL]',    desc:'BEST TIME'},
+    {cmd:'/givedriftcoins',   args:'[USER] [AMOUNT]',  desc:'GIVE DC'},
+    {cmd:'/givetalentpoints', args:'[USER] [AMOUNT]',  desc:'GIVE TP'},
+    {cmd:'/removedriftcoins', args:'[USER] [AMOUNT]',  desc:'REMOVE DC'},
+    {cmd:'/removetalentpoints',args:'[USER] [AMOUNT]', desc:'REMOVE TP'},
+    {cmd:'/resettalents',     args:'[USER]',            desc:'RESET TALENTS'},
+    {cmd:'/mute',             args:'[USER] [SECONDS]', desc:'MUTE USER'},
+    {cmd:'/password',         args:'[USER]',            desc:'ACCOUNT INFO'},
+    {cmd:'/driftcoins',       args:'[USER]',            desc:'CHECK DC'},
+    {cmd:'/talentpoints',     args:'[USER]',            desc:'CHECK TP'},
+    {cmd:'/besttime',         args:'[USER] [LEVEL]',    desc:'BEST TIME'},
 ];
 const SKIN_H=28,SKIN_SCALE=3;
 const BRANCH_X_WORLD=[300,750,1200,1450,1750,2050,550,2350,2650,900,2950];
@@ -614,7 +618,7 @@ let ownedSkins=(()=>{try{const o=JSON.parse(localStorage.getItem('icedrift_owned
 let shopTab=0;
 let talentPurchased=new Array(TALENT_COUNT).fill(false);
 let visionScale=1.0,accelerationMult=1.0,reloadCooldownMult=1.0;
-let speedTileEnd=0;
+let speedTileEnd=0,speedGlowStart=0;
 let cullMarginX=0,cullMarginY=0;
 let boostUnlocked=false,boostLevel=0,boostCooldownEnd=0,boostCooldownTotal=1,boostStretchStart=-Infinity;
 let wallDampenerUnlocked=false,wallDampenerLevel=0;
@@ -629,6 +633,9 @@ let secondChanceImmune=false,secondChanceImmunityEnd=0,secondChanceCooldownEnd=0
 let secondChanceTotalDuration=1,secondChanceImmunityTotal=1;
 let boostOverriding=false;
 let particles=[],iceParticleAccum=0,prevIceVelX=0,prevIceVelY=0;
+let chatHistory=[],chatHistoryScroll=0,chatHistTouchId=null,chatHistTouchStartY=0,chatHistTouchStartScroll=0;
+let shopScroll=0,settingsScroll=0;
+let lobbyPfxQueue=[],_lobbyDrift=null;
 let killGlowEnd=0,killGlowDur=600,screenShakeEnd=0,screenShakeDur=500,screenShakeMaxAmt=10;
 let countdownGoEnd=0;
 let lobbyChannel=null,otherPlayers={},lastLobbyBroadcast=0,lobbyLoaded=false;
@@ -1159,7 +1166,7 @@ class Car {
             const t=tiles[i][j];
             if(!hasIntersection(hb,t.hitbox)) continue;
             if(t.active&&(t.type==="ICE"||t.type==="SPEED_UP"||t.type==="SPEED_LEFT"||t.type==="SPEED_DOWN"||t.type==="SPEED_RIGHT")) onIce=true;
-            if(t.active&&(t.type==="SPEED_UP"||t.type==="SPEED_LEFT"||t.type==="SPEED_DOWN"||t.type==="SPEED_RIGHT")) speedTileEnd=performance.now()+2000;
+            if(t.active&&(t.type==="SPEED_UP"||t.type==="SPEED_LEFT"||t.type==="SPEED_DOWN"||t.type==="SPEED_RIGHT")){speedGlowStart=performance.now();speedTileEnd=speedGlowStart+2000;}
             if(t.active&&t.type==="GRASS") anyGrass=true; else allGrass=false;
             if(t.active&&t.type==="END"&&!finish){
                 finish=true; finishTick=performance.now();
@@ -1315,6 +1322,7 @@ class Car {
                     boostOverriding=true;boostStretchStart=performance.now();
                     {const pnow=performance.now();
                     const bNx=-(bx2/blen),bNy=-(by2/blen);
+                    if(page==='LOBBY') lobbyPfxQueue.push({t:'b',dx:bNx,dy:bNy});
                     for(let _i=0;_i<22;_i++){
                         const a=(Math.random()-0.5)*Math.PI*(Math.random()<0.4?1.1:0.7);
                         const ca=Math.cos(a),sa=Math.sin(a);
@@ -1357,7 +1365,8 @@ class Car {
         const sOff=5,pivY=10;
         const bsT=Math.min((performance.now()-boostStretchStart)/500,1);
         const bsVal=bsT<1?Math.exp(-3.5*bsT)*Math.cos(2.2*Math.PI*bsT):0;
-        const bsX=1-0.35*bsVal,bsY=1+0.45*bsVal;
+        const spdNow=Math.min(Math.sqrt(this.xVel*this.xVel+this.yVel*this.yVel)/38,1);
+        const bsX=(1-0.35*bsVal)*(1+spdNow*0.07),bsY=(1+0.45*bsVal)*(1-spdNow*0.04);
         ctx.save();
         ctx.globalAlpha=50/255;
         ctx.filter='brightness(0)';
@@ -1673,14 +1682,19 @@ canvas.addEventListener('touchstart',e=>{
         const mb=getMobBoostRect();
         const onBoost=mobileControls&&(page==='GAME'||page==='LOBBY')
             &&tx>=mb.x&&ty>=mb.y&&tx<=mb.x+mb.w&&ty<=mb.y+mb.h;
-        const isScrollPage=page==='LEADERBOARD'||page==='UPDATES';
+        const isScrollPage=page==='LEADERBOARD'||page==='UPDATES'||page==='SHOP'||page==='SETTINGS';
+        const CHBX=170,CHBW=460,CHINY=SCREEN_HEIGHT-40-30;
+        const inChatHist=currentUser&&chatActive&&ty<CHINY-6&&ty>=CHINY-286&&tx>=CHBX&&tx<=CHBX+CHBW;
         if(onBoost&&boostTouchId===null){
             boostTouchId=touch.identifier;
             shiftJustPressed=true;shiftWasDown=true;
+        }else if(inChatHist&&chatHistTouchId===null){
+            chatHistTouchId=touch.identifier;
+            chatHistTouchStartY=ty;chatHistTouchStartScroll=chatHistoryScroll;
         }else if(isScrollPage&&scrollTouchId===null){
             scrollTouchId=touch.identifier;
             scrollTouchStartY=ty;
-            scrollTouchStartVal=page==='LEADERBOARD'?lbScroll:upScroll;
+            scrollTouchStartVal=page==='LEADERBOARD'?lbScroll:page==='UPDATES'?upScroll:page==='SHOP'?shopScroll:settingsScroll;
             scrollTouchDragging=false;
             [mouseX,mouseY]=[tx,ty];
         }else if(aimTouchId===null){
@@ -1704,6 +1718,10 @@ canvas.addEventListener('touchmove',e=>{
     e.preventDefault();
     for(const touch of e.changedTouches){
         if(touch.identifier===aimTouchId){[mouseX,mouseY]=toDesign(touch.clientX,touch.clientY);}
+        if(touch.identifier===chatHistTouchId){
+            const[,sty]=toDesign(touch.clientX,touch.clientY);
+            chatHistoryScroll=Math.max(0,chatHistTouchStartScroll+(chatHistTouchStartY-sty));
+        }
         if(touch.identifier===scrollTouchId){
             const[,sty]=toDesign(touch.clientX,touch.clientY);
             const dy=scrollTouchStartY-sty;
@@ -1711,6 +1729,8 @@ canvas.addEventListener('touchmove',e=>{
             const sv=Math.max(0,scrollTouchStartVal+dy);
             if(page==='LEADERBOARD') lbScroll=sv;
             if(page==='UPDATES') upScroll=sv;
+            if(page==='SHOP') shopScroll=sv;
+            if(page==='SETTINGS') settingsScroll=sv;
         }
     }
 },{passive:false});
@@ -1722,6 +1742,7 @@ canvas.addEventListener('touchend',e=>{
             if(!scrollTouchDragging) mouseJustPressed=true;
             scrollTouchId=null;scrollTouchDragging=false;
         }
+        if(touch.identifier===chatHistTouchId) chatHistTouchId=null;
     }
 });
 // ── Supabase ──────────────────────────────────────────────────────────────────
@@ -1813,7 +1834,7 @@ async function dbChangePassword(currentPw,newPassword){
 async function dbLoadLeaderboard(level){
     lbLoading=true;lbRows=[];
     const{data}=await db.from('times').select('username,time').eq('level',level).order('time',{ascending:true}).limit(100);
-    lbRows=(data||[]).filter(r=>!isPrivileged(r.username));
+    lbRows=(data||[]).filter(r=>!isPrivileged(r.username)&&!BANNED_LB.includes((r.username||'').toLowerCase()));
     lbLoading=false;
 }
 function joinLobbyChannel(){
@@ -1823,7 +1844,8 @@ function joinLobbyChannel(){
     lobbyChannel
         .on('broadcast',{event:'pos'},({payload})=>{
             if(payload.uid===currentUser?.id)return;
-            otherPlayers[payload.uid]={x:payload.x,y:payload.y,dir:payload.dir||270,username:payload.username||'',skin:payload.skin||0,bsx:payload.bsx||1,bsy:payload.bsy||1,ts:performance.now()};
+            const prev=otherPlayers[payload.uid]||{};
+            otherPlayers[payload.uid]={x:payload.x,y:payload.y,dir:payload.dir||270,username:payload.username||'',skin:payload.skin||0,bsx:payload.bsx||1,bsy:payload.bsy||1,ts:performance.now(),drift:payload.drift||null,pfxPending:[...(prev.pfxPending||[]),...(payload.pfx||[])],iceAccum:prev.iceAccum||0};
         })
         .on('presence',{event:'leave'},({leftPresences})=>{
             for(const p of leftPresences)delete otherPlayers[p.key];
@@ -1843,7 +1865,8 @@ function joinChatChannel(){
     chatChannel=db.channel('ice-drift-chat');
     chatChannel
         .on('broadcast',{event:'chat'},({payload})=>{
-            chatMessages.push({uid:payload.uid||'',username:payload.username||'',text:(payload.text||'').slice(0,80),ts:Date.now()});
+            const m={uid:payload.uid||'',username:payload.username||'',text:(payload.text||'').slice(0,80),ts:Date.now()};
+            chatMessages.push(m);chatHistory.push(m);
             if(chatMessages.length>CHAT_MAX)chatMessages.shift();
         })
         .subscribe();
@@ -1869,8 +1892,14 @@ function unsubscribeFromProfile(){
     profileChannel.unsubscribe();
     profileChannel=null;
 }
+function subscribeToVersion(){
+    db.channel('game-version-watch')
+        .on('postgres_changes',{event:'UPDATE',schema:'public',table:'game_version'},()=>{location.reload();})
+        .subscribe();
+}
 function adminLocalMsg(text){
-    chatMessages.push({uid:'__system__',username:'',text:text.slice(0,60),ts:Date.now(),system:true});
+    const m={uid:'__system__',username:'',text:text.slice(0,60),ts:Date.now(),system:true};
+    chatMessages.push(m);chatHistory.push(m);chatHistoryScroll=0;
     if(chatMessages.length>CHAT_MAX)chatMessages.shift();
 }
 function sendChatMessage(text){
@@ -1878,7 +1907,7 @@ function sendChatMessage(text){
     if(!t||!chatChannel)return;
     if(Date.now()<mutedUntil){adminLocalMsg('YOU ARE MUTED');return;}
     const msg={uid:currentUser?.id||'',username:currentUsername,text:t,ts:Date.now()};
-    chatMessages.push(msg);
+    chatMessages.push(msg);chatHistory.push(msg);chatHistoryScroll=0;
     if(chatMessages.length>CHAT_MAX)chatMessages.shift();
     chatChannel.send({type:'broadcast',event:'chat',payload:msg});
 }
@@ -1894,6 +1923,21 @@ async function execAdminCommand(raw){
         const[,user,amtStr]=parts;const amount=parseInt(amtStr);
         if(!user||isNaN(amount)){adminLocalMsg('Usage: /givetalentpoints [user] [amount]');return;}
         const{data,error}=await db.rpc('admin_give_tp',{p_target:user,p_amount:amount,p_admin:currentUsername,p_caller_id:currentUser.id});
+        adminLocalMsg(error?'ERR: '+error.message:data);
+    }else if(cmd==='/removedriftcoins'){
+        const[,user,amtStr]=parts;const amount=parseInt(amtStr);
+        if(!user||isNaN(amount)){adminLocalMsg('Usage: /removedriftcoins [user] [amount]');return;}
+        const{data,error}=await db.rpc('admin_remove_dc',{p_target:user,p_amount:amount,p_caller_id:currentUser.id});
+        adminLocalMsg(error?'ERR: '+error.message:data);
+    }else if(cmd==='/removetalentpoints'){
+        const[,user,amtStr]=parts;const amount=parseInt(amtStr);
+        if(!user||isNaN(amount)){adminLocalMsg('Usage: /removetalentpoints [user] [amount]');return;}
+        const{data,error}=await db.rpc('admin_remove_tp',{p_target:user,p_amount:amount,p_caller_id:currentUser.id});
+        adminLocalMsg(error?'ERR: '+error.message:data);
+    }else if(cmd==='/resettalents'){
+        const[,user]=parts;
+        if(!user){adminLocalMsg('Usage: /resettalents [user]');return;}
+        const{data,error}=await db.rpc('admin_reset_talents',{p_target:user,p_caller_id:currentUser.id});
         adminLocalMsg(error?'ERR: '+error.message:data);
     }else if(cmd==='/mute'){
         const[,user,secsStr]=parts;const secs=parseInt(secsStr);
@@ -1972,14 +2016,21 @@ const hiddenPW=document.getElementById('hiddenPW');
 const hiddenChat=document.getElementById('hiddenChat');
 function setChatActive(val){
     chatActive=val;
-    if(val){hiddenChat.value=chatInput;hiddenChat.setSelectionRange(chatCaretPos,chatCaretPos);hiddenChat.focus();}
-    else{hiddenChat.blur();}
+    if(val){hiddenChat.value=chatInput;hiddenChat.setSelectionRange(chatCaretPos,chatCaretPos);hiddenChat.focus();setTimeout(applyKbShift,350);}
+    else{hiddenChat.blur();setTimeout(applyKbShift,50);}
 }
 hiddenChat.addEventListener('input',()=>{
     chatInput=hiddenChat.value.slice(0,80);
     chatCaretPos=hiddenChat.selectionStart??chatInput.length;
 });
 hiddenChat.addEventListener('keydown',e=>{
+    if(e.key==='Tab'&&isPrivileged(currentUsername)&&chatInput.startsWith('/')){
+        e.preventDefault();
+        const typed=chatInput.toLowerCase();
+        const sugg=ADMIN_COMMANDS.filter(c=>typed==='/'||c.cmd.startsWith(typed));
+        if(sugg.length){chatInput=sugg[0].cmd+' ';chatCaretPos=chatInput.length;hiddenChat.value=chatInput;hiddenChat.setSelectionRange(chatCaretPos,chatCaretPos);}
+        return;
+    }
     if(e.key==='Enter'){e.preventDefault();if(isPrivileged(currentUsername)&&chatInput.startsWith('/'))execAdminCommand(chatInput);else sendChatMessage(chatInput);chatInput='';chatCaretPos=0;setChatActive(false);}
     if(e.key==='Escape'){e.preventDefault();chatInput='';chatCaretPos=0;setChatActive(false);}
 });
@@ -2012,7 +2063,12 @@ document.addEventListener('keydown',e=>{
     if(chatActive){
         if(document.activeElement===hiddenChat)return;
         e.preventDefault();
-        if(e.key==='Enter'){if(isPrivileged(currentUsername)&&chatInput.startsWith('/'))execAdminCommand(chatInput);else sendChatMessage(chatInput);chatInput='';chatCaretPos=0;setChatActive(false);}
+        if(e.key==='Tab'&&isPrivileged(currentUsername)&&chatInput.startsWith('/')){
+            const typed=chatInput.toLowerCase();
+            const sugg=ADMIN_COMMANDS.filter(c=>typed==='/'||c.cmd.startsWith(typed));
+            if(sugg.length){chatInput=sugg[0].cmd+' ';chatCaretPos=chatInput.length;}
+        }
+        else if(e.key==='Enter'){if(isPrivileged(currentUsername)&&chatInput.startsWith('/'))execAdminCommand(chatInput);else sendChatMessage(chatInput);chatInput='';chatCaretPos=0;setChatActive(false);}
         else if(e.key==='Escape'){chatInput='';chatCaretPos=0;setChatActive(false);}
         else if(e.key==='Backspace'){if(chatCaretPos>0){chatInput=chatInput.slice(0,chatCaretPos-1)+chatInput.slice(chatCaretPos);chatCaretPos--;}}
         else if(e.key==='Delete'){if(chatCaretPos<chatInput.length)chatInput=chatInput.slice(0,chatCaretPos)+chatInput.slice(chatCaretPos+1);}
@@ -2058,6 +2114,9 @@ document.addEventListener('keyup',e=>{
 document.addEventListener('wheel',e=>{
     if(page==='LEADERBOARD') lbScroll=Math.max(0,lbScroll+Math.sign(e.deltaY)*40);
     if(page==='UPDATES') upScroll=Math.max(0,upScroll+Math.sign(e.deltaY)*40);
+    if(page==='SHOP') shopScroll=Math.max(0,shopScroll+Math.sign(e.deltaY)*40);
+    if(page==='SETTINGS') settingsScroll=Math.max(0,settingsScroll+Math.sign(e.deltaY)*40);
+    if(currentUser&&chatActive){const d=Math.sign(e.deltaY)*36;chatHistoryScroll=Math.max(0,chatHistoryScroll+d);}
 },{passive:true});
 
 const UPDATE_LOG=[
@@ -2141,6 +2200,12 @@ function getCaretPosFromX(text,relX,scale){
 function applyKbShift(){
     if(!window.visualViewport) return;
     const kbOpen=window.visualViewport.height<window.innerHeight-100;
+    if(kbOpen&&chatActive){
+        const chatBottom=((SCREEN_HEIGHT-30)*gameScale+gameOffY)/dpr;
+        const shift=Math.max(0,chatBottom-window.visualViewport.height);
+        canvas.style.transform=shift>0?`translateY(-${Math.round(shift)}px)`:'';
+        return;
+    }
     if(kbOpen&&(page==='LOGIN'||page==='CREATE')&&activeInput&&authFieldRects){
         const field=activeInput==='username'?authFieldRects.un:authFieldRects.pw;
         if(field){
@@ -2225,11 +2290,13 @@ Promise.all([
     loadImg('textures/cooldowns.png'),
     loadImg('textures/icons.png')
 ]).then(async([sheet,carImg,titleImg,textSheet,btnSheet,cdSheet,iconsImg])=>{
+    subscribeToVersion();
     // Restore session if user was previously logged in
     const{data:{session}}=await db.auth.getSession();
     if(session){
         currentUser=session.user;
         await dbLoadProfile(session.user.id);
+        subscribeToProfile();
         page='LEVELS';dbLoadRecords();
     }
 
@@ -2750,7 +2817,10 @@ Promise.all([
 
             {const cardW=360,cardH=360,cardGapX=60,cardGapY=40;
             const gridW=cardW*2+cardGapX,gridX=Math.floor(SCREEN_WM-gridW/2);
-            const gridY=130;
+            const totalGridH=Math.ceil(SKINS.length/2)*(cardH+cardGapY);
+            shopScroll=Math.max(0,Math.min(shopScroll,Math.max(0,totalGridH-(SCREEN_HEIGHT-200))));
+            const gridY=130-shopScroll;
+            ctx.save();ctx.rect(0,100,SCREEN_WIDTH,SCREEN_HEIGHT-100);ctx.clip();
             for(let i=0;i<SKINS.length;i++){
                 const sk=SKINS[i];
                 const col=i%2,row=Math.floor(i/2);
@@ -2799,6 +2869,7 @@ Promise.all([
                 }
             }}
 
+            ctx.restore();
             const shopBb=getBackBtn();
             if(mjp&&inRect(mouseX,mouseY,shopBb.bx,shopBb.by,shopBb.bw,shopBb.bh)) page='LEVELS';
             renderButton(ctx,btnSheet,textSheet,4,shopBb.bx,shopBb.by,shopBb.bw,shopBb.bh,'');
@@ -3011,18 +3082,22 @@ Promise.all([
                 tabCurX+=tw+tabGap;
             }}
 
+            {const contentTop=210,rowH=110,rowGap=Math.max(rowH,Math.floor((SCREEN_HEIGHT-260)/5));
+            ctx.save();ctx.rect(0,contentTop,SCREEN_WIDTH,SCREEN_HEIGHT-contentTop);ctx.clip();
             if(settingsTab===0){
                 if(currentUsername){
-                    const unLabel='LOGGED IN AS',unLabelW=unLabel.length*(4*3+3);
-                    renderText(ctx,textSheet,unLabel,Math.floor(SCREEN_WM-unLabelW/2),Math.floor(SCREEN_HM-240),1,140,140,160);
-                    const unName=currentUsername.toUpperCase(),unNameW=unName.length*(4*3*2+3);
-                    renderText(ctx,textSheet,unName,Math.floor(SCREEN_WM-unNameW/2),Math.floor(SCREEN_HM-210),2,0,0,0);
-
                     const autoW=lbl=>lbl.length*(4*3*2+3)+60;
-                    const cuW=autoW('CHANGE USERNAME'),cuH=80,cuX=Math.floor(SCREEN_WM-cuW/2),cuY=Math.floor(SCREEN_HM-130);
-                    const cpW=autoW('CHANGE PASSWORD'),cpH=80,cpX=Math.floor(SCREEN_WM-cpW/2),cpY=cuY+100;
-                    const loW=autoW('LOG OUT'),loH=80,loX=Math.floor(SCREEN_WM-loW/2),loY=cpY+110;
-                    const delW=autoW('DELETE ACCOUNT'),delH=80,delX=Math.floor(SCREEN_WM-delW/2),delY=loY+100;
+                    let sy=contentTop+20-settingsScroll;
+                    const unLabel='LOGGED IN AS',unLabelW=unLabel.length*(4*3+3);
+                    renderText(ctx,textSheet,unLabel,Math.floor(SCREEN_WM-unLabelW/2),sy,1,140,140,160);sy+=34;
+                    const unName=currentUsername.toUpperCase(),unNameW=unName.length*(4*3*2+3);
+                    renderText(ctx,textSheet,unName,Math.floor(SCREEN_WM-unNameW/2),sy,2,0,0,0);sy+=rowGap;
+                    const cuW=autoW('CHANGE USERNAME'),cuH=80,cuX=Math.floor(SCREEN_WM-cuW/2),cuY=sy;
+                    const cpW=autoW('CHANGE PASSWORD'),cpH=80,cpX=Math.floor(SCREEN_WM-cpW/2),cpY=cuY+rowGap;
+                    const loW=autoW('LOG OUT'),loH=80,loX=Math.floor(SCREEN_WM-loW/2),loY=cpY+rowGap;
+                    const delW=autoW('DELETE ACCOUNT'),delH=80,delX=Math.floor(SCREEN_WM-delW/2),delY=loY+rowGap;
+                    const totalH=delY+delH+150-contentTop;
+                    settingsScroll=Math.max(0,Math.min(settingsScroll,Math.max(0,totalH-(SCREEN_HEIGHT-contentTop))));
 
                     renderTextButton(ctx,bwBtnSheet,textSheet,0,cuX,cuY,cuW,'CHANGE USERNAME',0,0,0);
                     renderTextButton(ctx,bwBtnSheet,textSheet,0,cpX,cpY,cpW,'CHANGE PASSWORD',0,0,0);
@@ -3054,8 +3129,9 @@ Promise.all([
                     renderText(ctx,textSheet,notLoggedIn,Math.floor(SCREEN_WM-nlW/2),Math.floor(SCREEN_HM-10),2,120,120,130);
                 }
             } else if(settingsTab===1){
+                settingsScroll=0;
                 const mcLabel='MOBILE CONTROLS',mcLW=mcLabel.length*(4*3+3);
-                const mcBtnW=('ON').length*(4*3*2+3)+60,mcBtnH=80,mcRowY=Math.floor(SCREEN_HM-40);
+                const mcBtnW=('ON').length*(4*3*2+3)+60,mcBtnH=80,mcRowY=Math.floor(contentTop+(SCREEN_HEIGHT-contentTop)/2-60);
                 const mcTotalW=mcLW+24+mcBtnW,mcLabelX=Math.floor(SCREEN_WM-mcTotalW/2),mcBtnX=mcLabelX+mcLW+24;
                 renderText(ctx,textSheet,mcLabel,mcLabelX,mcRowY+22,1,80,80,80);
                 renderTextButton(ctx,mobileControls?btnSheet:bwBtnSheet,textSheet,0,mcBtnX,mcRowY,mcBtnW,mobileControls?'ON':'OFF',0,0,0);
@@ -3064,9 +3140,10 @@ Promise.all([
                     localStorage.setItem('mobileControls',mobileControls?'1':'0');
                 }
             }
+            ctx.restore();}
 
             {const bb=getBackBtn();renderButton(ctx,btnSheet,textSheet,4,bb.bx,bb.by,bb.bw,bb.bh,'');}
-            if(mjp){const bb=getBackBtn();if(inRect(mouseX,mouseY,bb.bx,bb.by,bb.bw,bb.bh)){deleteConfirm=false;page='LEVELS';}}
+            if(mjp){const bb=getBackBtn();if(inRect(mouseX,mouseY,bb.bx,bb.by,bb.bw,bb.bh)){deleteConfirm=false;settingsScroll=0;page='LEVELS';}}
 
 
         } else if(page==='CHANGE_USERNAME'){
@@ -3196,11 +3273,13 @@ Promise.all([
             if(player.lastWallHit){
                 const wSpd=player.lastWallPreSpeed,nx=player.lastWallNX,ny=player.lastWallNY;
                 const cnt=Math.min(20,Math.floor(wSpd*0.8+4));
+                const cX=player.xPos+SCREEN_WM-nx*(CAR_HEIGHT*0.5);
+                const cY=player.yPos+SCREEN_HM-ny*(CAR_HEIGHT*0.5);
                 for(let i=0;i<cnt;i++){
                     const a=(Math.random()-0.5)*Math.PI;
                     const ca=Math.cos(a),sa=Math.sin(a);
                     const dx=nx*ca-ny*sa,dy=nx*sa+ny*ca;
-                    particles.push({wx:player.xPos+SCREEN_WM+(Math.random()-0.5)*8,wy:player.yPos+SCREEN_HM+(Math.random()-0.5)*8,
+                    particles.push({wx:cX+(Math.random()-0.5)*6,wy:cY+(Math.random()-0.5)*6,
                         vx:dx*(1.5+Math.random()*wSpd*0.35),vy:dy*(1.5+Math.random()*wSpd*0.35),
                         born:pnow,life:200+Math.random()*200,size:3+Math.random()*4,wall:true,rot:Math.random()*Math.PI*2,bright:Math.random()});
                 }
@@ -3407,20 +3486,26 @@ Promise.all([
                 renderText(ctx,textSheet,hint,SCREEN_WIDTH-hw-12,SCREEN_HEIGHT-7*3-12,1,255,255,255);
                 ctx.restore();
             }
-            if(performance.now()<speedTileEnd){
+            {const _now=performance.now();if(_now<speedTileEnd){
+                const _dur=speedTileEnd-speedGlowStart;
+                const _el=_now-speedGlowStart;
+                const _rem=speedTileEnd-_now;
+                const _fa=Math.min(1,Math.min(_el/300,_rem/300));
                 const grd=ctx.createRadialGradient(SCREEN_WM,SCREEN_HM,Math.min(SCREEN_WIDTH,SCREEN_HEIGHT)*0.15,SCREEN_WM,SCREEN_HM,Math.max(SCREEN_WIDTH,SCREEN_HEIGHT)*0.75);
                 grd.addColorStop(0,'rgba(0,255,80,0)');
-                grd.addColorStop(0.5,'rgba(0,255,80,0.5)');
-                grd.addColorStop(1,'rgba(0,255,80,0.9)');
-                ctx.fillStyle=grd;
-                ctx.fillRect(0,0,SCREEN_WIDTH,SCREEN_HEIGHT);
-            }
+                grd.addColorStop(0.5,`rgba(0,255,80,${(_fa*0.5).toFixed(2)})`);
+                grd.addColorStop(1,`rgba(0,255,80,${(_fa*0.9).toFixed(2)})`);
+                ctx.fillStyle=grd;ctx.fillRect(0,0,SCREEN_WIDTH,SCREEN_HEIGHT);
+            }}
             {const _kgt=performance.now();if(_kgt<killGlowEnd){
+                const _elapsed=killGlowDur-(killGlowEnd-_kgt);
                 const _kf=(killGlowEnd-_kgt)/killGlowDur;
+                const _fi=Math.min(1,_elapsed/120);
+                const _fa=_kf*_fi;
                 const grd=ctx.createRadialGradient(SCREEN_WM,SCREEN_HM,Math.min(SCREEN_WIDTH,SCREEN_HEIGHT)*0.1,SCREEN_WM,SCREEN_HM,Math.max(SCREEN_WIDTH,SCREEN_HEIGHT)*0.8);
                 grd.addColorStop(0,'rgba(255,0,0,0)');
-                grd.addColorStop(0.5,`rgba(255,0,0,${(_kf*0.45).toFixed(2)})`);
-                grd.addColorStop(1,`rgba(255,0,0,${(_kf*0.8).toFixed(2)})`);
+                grd.addColorStop(0.5,`rgba(255,0,0,${(_fa*0.45).toFixed(2)})`);
+                grd.addColorStop(1,`rgba(255,0,0,${(_fa*0.8).toFixed(2)})`);
                 ctx.fillStyle=grd;ctx.fillRect(0,0,SCREEN_WIDTH,SCREEN_HEIGHT);
             }}
 
@@ -3451,14 +3536,15 @@ Promise.all([
             player.update(mouseX,mouseY,tiles,dt,sjp,rmp);
             {const spd=Math.sqrt(player.xVel*player.xVel+player.yVel*player.yVel);
             const prevSpd=Math.sqrt(prevIceVelX*prevIceVelX+prevIceVelY*prevIceVelY);
-            let driftFactor=0;
+            let _ldf=0;
             if(spd>0.3&&prevSpd>0.3){
                 const cross=Math.abs(prevIceVelX*player.yVel-prevIceVelY*player.xVel)/(spd*prevSpd);
-                driftFactor=cross;
+                _ldf=cross;
             }
             prevIceVelX=player.xVel;prevIceVelY=player.yVel;
-            if(driftFactor>0.02&&spd>0.3){
-                iceParticleAccum+=dt*driftFactor*spd*1.4;
+            _lobbyDrift=(_ldf>0.02&&spd>0.3)?{factor:Math.min(1,_ldf),spd,vx:player.xVel/spd,vy:player.yVel/spd}:null;
+            if(_ldf>0.02&&spd>0.3){
+                iceParticleAccum+=dt*_ldf*spd*1.4;
                 const pnow=performance.now();
                 while(iceParticleAccum>=1){
                     iceParticleAccum-=1;
@@ -3481,14 +3567,61 @@ Promise.all([
             if(player.lastWallHit){
                 const wSpd=player.lastWallPreSpeed,nx=player.lastWallNX,ny=player.lastWallNY;
                 const cnt=Math.min(20,Math.floor(wSpd*0.8+4));
+                const cX=player.xPos+SCREEN_WM-nx*(CAR_HEIGHT*0.5);
+                const cY=player.yPos+SCREEN_HM-ny*(CAR_HEIGHT*0.5);
                 for(let i=0;i<cnt;i++){
                     const a=(Math.random()-0.5)*Math.PI;
                     const ca=Math.cos(a),sa=Math.sin(a);
                     const dx=nx*ca-ny*sa,dy=nx*sa+ny*ca;
-                    particles.push({wx:player.xPos+SCREEN_WM+(Math.random()-0.5)*8,wy:player.yPos+SCREEN_HM+(Math.random()-0.5)*8,
+                    particles.push({wx:cX+(Math.random()-0.5)*6,wy:cY+(Math.random()-0.5)*6,
                         vx:dx*(1.5+Math.random()*wSpd*0.35),vy:dy*(1.5+Math.random()*wSpd*0.35),
                         born:pnow,life:200+Math.random()*200,size:3+Math.random()*4,wall:true,rot:Math.random()*Math.PI*2,bright:Math.random()});
                 }
+                lobbyPfxQueue.push({t:'w',nx,ny,spd:wSpd});
+            }}
+            // Spawn particles for other players (ice drift + pending pfx events)
+            {const pnow=performance.now();
+            for(const[,op]of Object.entries(otherPlayers)){
+                if(op.drift&&op.drift.spd>0.3){
+                    op.iceAccum=(op.iceAccum||0)+dt*op.drift.factor*op.drift.spd*1.4;
+                    while(op.iceAccum>=1){
+                        op.iceAccum--;
+                        const bx=-op.drift.vx,by=-op.drift.vy;
+                        const rX=bx*(CAR_HEIGHT*0.5),rY=by*(CAR_HEIGHT*0.5);
+                        const a=(Math.random()-0.5)*Math.PI*0.7;
+                        const ca=Math.cos(a),sa=Math.sin(a);
+                        const dx=bx*ca-by*sa,dy=bx*sa+by*ca;
+                        particles.push({wx:op.x+rX+(Math.random()-0.5)*8,wy:op.y+rY+(Math.random()-0.5)*8,
+                            vx:dx*(2+Math.random()*op.drift.spd*0.45),vy:dy*(2+Math.random()*op.drift.spd*0.45),
+                            born:pnow,life:300+Math.random()*350,size:4+Math.random()*6,ice:true,grass:false,rot:Math.random()*Math.PI*2,bright:Math.random()});
+                    }
+                }
+                for(const ev of(op.pfxPending||[])){
+                    if(ev.t==='w'){
+                        const cnt2=Math.min(20,Math.floor(ev.spd*0.8+4));
+                        const cX2=op.x-ev.nx*(CAR_HEIGHT*0.5),cY2=op.y-ev.ny*(CAR_HEIGHT*0.5);
+                        for(let i=0;i<cnt2;i++){
+                            const a=(Math.random()-0.5)*Math.PI;
+                            const ca=Math.cos(a),sa=Math.sin(a);
+                            const dx=ev.nx*ca-ev.ny*sa,dy=ev.nx*sa+ev.ny*ca;
+                            particles.push({wx:cX2+(Math.random()-0.5)*6,wy:cY2+(Math.random()-0.5)*6,
+                                vx:dx*(1.5+Math.random()*ev.spd*0.35),vy:dy*(1.5+Math.random()*ev.spd*0.35),
+                                born:pnow,life:200+Math.random()*200,size:3+Math.random()*4,wall:true,rot:Math.random()*Math.PI*2,bright:Math.random()});
+                        }
+                    }else if(ev.t==='b'){
+                        const bNx=ev.dx,bNy=ev.dy;
+                        for(let _i=0;_i<22;_i++){
+                            const a=(Math.random()-0.5)*Math.PI*(Math.random()<0.4?1.1:0.7);
+                            const ca=Math.cos(a),sa=Math.sin(a);
+                            const pdx=bNx*ca-bNy*sa,pdy=bNx*sa+bNy*ca;
+                            const isSmk=Math.random()<0.35,spd2=isSmk?(1+Math.random()*3):(4+Math.random()*8);
+                            particles.push({wx:op.x+bNx*32,wy:op.y+bNy*32,vx:pdx*spd2,vy:pdy*spd2,
+                                born:pnow,life:isSmk?(600+Math.random()*500):(200+Math.random()*250),
+                                size:isSmk?(7+Math.random()*8):(3+Math.random()*4),smoke:isSmk});
+                        }
+                    }
+                }
+                op.pfxPending=[];
             }}
             for(let i=0;i<TILE_GRID_HEIGHT;i++)
                 for(let j=0;j<TILE_GRID_WIDTH;j++)
@@ -3501,7 +3634,7 @@ Promise.all([
                 lastLobbyBroadcast=now;
                 const _bsT=Math.min((now-boostStretchStart)/500,1);
                 const _bsVal=_bsT<1?Math.exp(-3.5*_bsT)*Math.cos(2.2*Math.PI*_bsT):0;
-                lobbyChannel?.send({type:'broadcast',event:'pos',payload:{uid:currentUser.id,x:player.xPos+SCREEN_WM,y:player.yPos+SCREEN_HM,dir:player.drawDir,username:currentUsername,skin:selectedSkin,bsx:parseFloat((1-0.35*_bsVal).toFixed(3)),bsy:parseFloat((1+0.45*_bsVal).toFixed(3))}});
+                lobbyChannel?.send({type:'broadcast',event:'pos',payload:{uid:currentUser.id,x:player.xPos+SCREEN_WM,y:player.yPos+SCREEN_HM,dir:player.drawDir,username:currentUsername,skin:selectedSkin,bsx:parseFloat((1-0.35*_bsVal).toFixed(3)),bsy:parseFloat((1+0.45*_bsVal).toFixed(3)),drift:_lobbyDrift,pfx:lobbyPfxQueue.splice(0)}});
             }}
 
             // Remove stale other players
@@ -3676,13 +3809,15 @@ Promise.all([
                 else hudSpriteL(ny,3,cdStateL(secondChanceCooldownEnd,secondChanceTotalDuration));
             }}
             // Speed tile glow
-            if(performance.now()<speedTileEnd){
+            {const _now=performance.now();if(_now<speedTileEnd){
+                const _el=_now-speedGlowStart,_rem=speedTileEnd-_now;
+                const _fa=Math.min(1,Math.min(_el/300,_rem/300));
                 const grd=ctx.createRadialGradient(SCREEN_WM,SCREEN_HM,Math.min(SCREEN_WIDTH,SCREEN_HEIGHT)*0.15,SCREEN_WM,SCREEN_HM,Math.max(SCREEN_WIDTH,SCREEN_HEIGHT)*0.75);
                 grd.addColorStop(0,'rgba(0,255,80,0)');
-                grd.addColorStop(0.5,'rgba(0,255,80,0.5)');
-                grd.addColorStop(1,'rgba(0,255,80,0.9)');
+                grd.addColorStop(0.5,`rgba(0,255,80,${(_fa*0.5).toFixed(2)})`);
+                grd.addColorStop(1,`rgba(0,255,80,${(_fa*0.9).toFixed(2)})`);
                 ctx.fillStyle=grd;ctx.fillRect(0,0,SCREEN_WIDTH,SCREEN_HEIGHT);
-            }
+            }}
             // LOBBY label
             {const lbl='LOBBY',lw=lbl.length*(4*3*2+3);
             ctx.save();ctx.globalAlpha=0.7;
@@ -3717,41 +3852,71 @@ Promise.all([
         // ── Global chat (visible on all pages when logged in) ──
         if(currentUser){
             const CBX=170,CBW=460,msgLineH=36,INH=40,INY=SCREEN_HEIGHT-INH-30;
-            const visMsgs=chatMessages.filter(m=>(Date.now()-m.ts)<10000).slice(-8);
-            const CBH=visMsgs.length>0?visMsgs.length*msgLineH+12:0;
-            const CBY=INY-CBH-(CBH>0?6:0);
+            const bgH=7*3+10;
+            function renderChatMsg(m,rowY,alpha){
+                if(m.system){
+                    const sText=('> '+m.text).slice(0,42);
+                    const sW=sText.length*(4*3+3)+20;
+                    ctx.save();ctx.globalAlpha=alpha*0.6;ctx.fillStyle='#1a1200';
+                    ctx.beginPath();ctx.roundRect(CBX,rowY-5,sW,bgH,4);ctx.fill();ctx.restore();
+                    ctx.save();ctx.globalAlpha=alpha;
+                    renderText(ctx,textSheet,sText,CBX+10,rowY,1,255,200,60);
+                    ctx.restore();
+                }else{
+                    const isOwn=m.uid===currentUser?.id;
+                    const unStr=(m.username||'anonymous').toUpperCase()+': ';
+                    const unW=unStr.length*(4*3+3);
+                    const msgText=m.text.slice(0,38);
+                    const msgW=msgText.length*(4*3+3);
+                    const bgW=unW+msgW+20;
+                    ctx.save();ctx.globalAlpha=alpha*0.55;ctx.fillStyle='#000';
+                    ctx.beginPath();ctx.roundRect(CBX,rowY-5,bgW,bgH,4);ctx.fill();ctx.restore();
+                    ctx.save();ctx.globalAlpha=alpha;
+                    const ur=isOwn?255:180,ug=isOwn?160:180,ub=isOwn?40:180;
+                    const tr=isOwn?255:160,tg=isOwn?160:160,tb=isOwn?40:160;
+                    renderText(ctx,textSheet,unStr,CBX+10,rowY,1,ur,ug,ub);
+                    renderText(ctx,textSheet,msgText,CBX+10+unW,rowY,1,tr,tg,tb);
+                    ctx.restore();
+                }
+            }
 
-            // Message history box
-            if(CBH>0){
-                for(let i=0;i<visMsgs.length;i++){
-                    const m=visMsgs[i];
-                    const age=(Date.now()-m.ts)/1000;
-                    const alpha=age>8?Math.max(0,1-(age-8)/2):1;
-                    const rowY=CBY+10+i*msgLineH;
-                    const bgH=7*3+10;
-                    if(m.system){
-                        const sText=('> '+m.text).slice(0,42);
-                        const sW=sText.length*(4*3+3)+20;
-                        ctx.save();ctx.globalAlpha=alpha*0.6;ctx.fillStyle='#1a1200';
-                        ctx.beginPath();ctx.roundRect(CBX,rowY-5,sW,bgH,4);ctx.fill();ctx.restore();
-                        ctx.save();ctx.globalAlpha=alpha;
-                        renderText(ctx,textSheet,sText,CBX+10,rowY,1,255,200,60);
-                        ctx.restore();
-                    }else{
-                        const isOwn=m.uid===currentUser?.id;
-                        const unStr=(m.username||'anonymous').toUpperCase()+': ';
-                        const unW=unStr.length*(4*3+3);
-                        const msgText=m.text.slice(0,38);
-                        const msgW=msgText.length*(4*3+3);
-                        const bgW=unW+msgW+20;
-                        ctx.save();ctx.globalAlpha=alpha*0.55;ctx.fillStyle='#000';
-                        ctx.beginPath();ctx.roundRect(CBX,rowY-5,bgW,bgH,4);ctx.fill();ctx.restore();
-                        ctx.save();ctx.globalAlpha=alpha;
-                        const ur=isOwn?255:180,ug=isOwn?160:180,ub=isOwn?40:180;
-                        const tr=isOwn?255:160,tg=isOwn?160:160,tb=isOwn?40:160;
-                        renderText(ctx,textSheet,unStr,CBX+10,rowY,1,ur,ug,ub);
-                        renderText(ctx,textSheet,msgText,CBX+10+unW,rowY,1,tr,tg,tb);
-                        ctx.restore();
+            if(chatActive){
+                // Scrollable history panel
+                const HIST_H=280,histTop=INY-6-HIST_H;
+                const totalHistH=chatHistory.length*msgLineH+12;
+                chatHistoryScroll=Math.max(0,Math.min(chatHistoryScroll,Math.max(0,totalHistH-HIST_H)));
+                ctx.save();ctx.globalAlpha=0.88;ctx.fillStyle='#0a1628';
+                ctx.beginPath();ctx.roundRect(CBX,histTop,CBW,HIST_H,8);ctx.fill();
+                ctx.strokeStyle='rgb(60,100,200)';ctx.lineWidth=1.5;
+                ctx.beginPath();ctx.roundRect(CBX,histTop,CBW,HIST_H,8);ctx.stroke();
+                ctx.restore();
+                ctx.save();ctx.rect(CBX,histTop,CBW,HIST_H);ctx.clip();
+                // render from bottom: most recent last, scrolled
+                const visibleMsgs=chatHistory;
+                const bottomAnchor=histTop+HIST_H-10+chatHistoryScroll;
+                for(let i=visibleMsgs.length-1;i>=0;i--){
+                    const rowY=bottomAnchor-(visibleMsgs.length-1-i)*msgLineH-msgLineH;
+                    if(rowY+msgLineH<histTop||rowY>histTop+HIST_H) continue;
+                    renderChatMsg(visibleMsgs[i],rowY,1);
+                }
+                ctx.restore();
+                if(chatHistory.length===0){
+                    ctx.save();ctx.globalAlpha=0.5;
+                    const ph='NO MESSAGES YET',phW=ph.length*(4*3+3);
+                    renderText(ctx,textSheet,ph,Math.floor(CBX+CBW/2-phW/2),Math.floor(histTop+HIST_H/2-10),1,120,130,160);
+                    ctx.restore();
+                }
+            } else {
+                // Fading recent messages overlay
+                const visMsgs=chatMessages.filter(m=>(Date.now()-m.ts)<10000).slice(-8);
+                const CBH=visMsgs.length>0?visMsgs.length*msgLineH+12:0;
+                const CBY=INY-CBH-(CBH>0?6:0);
+                if(CBH>0){
+                    for(let i=0;i<visMsgs.length;i++){
+                        const m=visMsgs[i];
+                        const age=(Date.now()-m.ts)/1000;
+                        const alpha=age>8?Math.max(0,1-(age-8)/2):1;
+                        renderChatMsg(m,CBY+10+i*msgLineH,alpha);
                     }
                 }
             }
@@ -3763,7 +3928,8 @@ Promise.all([
                 if(sugg.length){
                     const acRowH=32,acPad=8,acW=CBW;
                     const acH=sugg.length*acRowH+acPad*2;
-                    const acY=INY-acH-4;
+                    const histTopAC=INY-6-280;
+                    const acY=histTopAC-acH-4;
                     ctx.save();ctx.globalAlpha=0.95;ctx.fillStyle='#0d1f3c';
                     ctx.beginPath();ctx.roundRect(CBX,acY,acW,acH,6);ctx.fill();
                     ctx.strokeStyle='rgb(80,120,220)';ctx.lineWidth=1.5;
@@ -3799,8 +3965,9 @@ Promise.all([
 
             // Click to activate / deactivate
             if(mjp){
+                const HIST_H=280,histTop=INY-6-HIST_H;
                 if(inRect(mouseX,mouseY,CBX,INY,CBW,INH)) setChatActive(true);
-                else if(chatActive&&!inRect(mouseX,mouseY,CBX,CBY,CBW,INY+INH-CBY)) setChatActive(false);
+                else if(chatActive&&!inRect(mouseX,mouseY,CBX,histTop,CBW,INY+INH-histTop)) setChatActive(false);
             }
         }
 
