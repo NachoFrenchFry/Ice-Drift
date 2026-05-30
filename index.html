@@ -1365,8 +1365,7 @@ class Car {
         const sOff=5,pivY=10;
         const bsT=Math.min((performance.now()-boostStretchStart)/500,1);
         const bsVal=bsT<1?Math.exp(-3.5*bsT)*Math.cos(2.2*Math.PI*bsT):0;
-        const spdNow=Math.min(Math.sqrt(this.xVel*this.xVel+this.yVel*this.yVel)/38,1);
-        const bsX=(1-0.35*bsVal)*(1+spdNow*0.22),bsY=(1+0.45*bsVal)*(1-spdNow*0.14);
+        const bsX=(1-0.35*bsVal),bsY=(1+0.45*bsVal);
         ctx.save();
         ctx.globalAlpha=50/255;
         ctx.filter='brightness(0)';
@@ -3866,13 +3865,12 @@ Promise.all([
 
         // ── Global chat (visible on all pages when logged in) ──
         if(currentUser){
-            const CBX=80,CBW=Math.min(550,SCREEN_WIDTH-CBX-10),msgLineH=36,INH=40,INY=SCREEN_HEIGHT-INH-30;
-            const bgH=7*3+10,_cw=CBW-20,_cp=4*3+3;
+            const CBX=145,CBW=SCREEN_WIDTH-CBX-10,msgLineH=36,INH=40,INY=SCREEN_HEIGHT-INH-30;
+            const bgH=7*3+10,_cp=4*3+3,_maxBgW=CBW;
             function renderChatMsg(m,rowY,alpha){
                 if(m.system){
-                    const maxSCh=Math.max(8,Math.floor(_cw/_cp));
-                    const sText=('> '+m.text).slice(0,maxSCh);
-                    const sW=sText.length*_cp+20;
+                    const sText=('> '+m.text).slice(0,60);
+                    const sW=Math.min(_maxBgW,sText.length*_cp+20);
                     ctx.save();ctx.globalAlpha=alpha*0.6;ctx.fillStyle='#1a1200';
                     ctx.beginPath();ctx.roundRect(CBX,rowY-5,sW,bgH,4);ctx.fill();ctx.restore();
                     ctx.save();ctx.globalAlpha=alpha;
@@ -3881,11 +3879,10 @@ Promise.all([
                 }else{
                     const isOwn=m.uid===currentUser?.id;
                     const unStr=(m.username||'anonymous').toUpperCase()+': ';
-                    const unW=unStr.length*(4*3+3);
-                    const maxCh=Math.max(4,Math.floor((_cw-unW)/_cp));
-                    const msgText=m.text.slice(0,maxCh);
+                    const unW=unStr.length*_cp;
+                    const msgText=m.text.slice(0,60);
                     const msgW=msgText.length*_cp;
-                    const bgW=unW+msgW+20;
+                    const bgW=Math.min(_maxBgW,unW+msgW+20);
                     ctx.save();ctx.globalAlpha=alpha*0.55;ctx.fillStyle='#000';
                     ctx.beginPath();ctx.roundRect(CBX,rowY-5,bgW,bgH,4);ctx.fill();ctx.restore();
                     ctx.save();ctx.globalAlpha=alpha;
