@@ -1864,7 +1864,8 @@ function joinLobbyChannel(){
         .on('broadcast',{event:'pos'},({payload})=>{
             if(payload.uid===currentUser?.id)return;
             const prev=otherPlayers[payload.uid]||{};
-            otherPlayers[payload.uid]={x:payload.x,y:payload.y,dir:payload.dir||270,username:payload.username||'',skin:payload.skin||0,bsx:payload.bsx||1,bsy:payload.bsy||1,ts:performance.now(),drift:payload.drift||null,pfxPending:[...(prev.pfxPending||[]),...(payload.pfx||[])],iceAccum:prev.iceAccum||0};
+            const _rcvNow=performance.now();
+            otherPlayers[payload.uid]={x:payload.x,y:payload.y,dir:payload.dir||270,username:payload.username||'',skin:payload.skin||0,bsx:payload.bsx||1,bsy:payload.bsy||1,ts:_rcvNow,drift:payload.drift||null,pfxPending:[...(prev.pfxPending||[]),...(payload.pfx||[])],iceAccum:prev.iceAccum||0,sc_rem:payload.sc_rem||0,sc_total:payload.sc_total||1,sc_ts:_rcvNow,spd_rem:payload.spd_rem||0,spd_el:payload.spd_el||0,spd_ts:_rcvNow,_sc2Pfx:prev._sc2Pfx||0,_spdPfx:prev._spdPfx||0,ghostTrail:(()=>{let _gt=(prev.ghostTrail||[]).filter(g=>_rcvNow-g.born<g.life);const _last=_gt.length>0?_gt[_gt.length-1]:null;const _dx=_last?payload.x-_last.wx:999,_dy=_last?payload.y-_last.wy:999;if((payload.drift?.spd||0)>20&&_dx*_dx+_dy*_dy>22*22)_gt.push({wx:payload.x,wy:payload.y,dir:payload.dir||270,born:_rcvNow,life:380});return _gt;})()};
         })
         .on('presence',{event:'leave'},({leftPresences})=>{
             for(const p of leftPresences)delete otherPlayers[p.key];
@@ -3730,6 +3731,29 @@ Promise.all([
                 }
                 lobbyPfxQueue.push({t:'w',nx,ny,spd:wSpd});
             }}
+            {const pnow=performance.now();
+            if(secondChanceImmune&&pnow<secondChanceImmunityEnd&&pnow-_sc2Pfx>25){
+                _sc2Pfx=pnow;
+                for(let _si=0;_si<30;_si++){
+                    const _sa2=Math.random()*Math.PI*2,_ss=1+Math.random()*4.5;
+                    const _gold=Math.random()>0.4;
+                    particles.push({wx:player.xPos+SCREEN_WM+(Math.random()-0.5)*36,wy:player.yPos+SCREEN_HM+(Math.random()-0.5)*36,
+                        vx:Math.cos(_sa2)*_ss,vy:Math.sin(_sa2)*_ss-1.2,
+                        born:pnow,life:400+Math.random()*400,size:3+Math.random()*7,
+                        finish:true,r:255,g:_gold?Math.floor(180+Math.random()*60):Math.floor(120+Math.random()*80),b:_gold?0:Math.floor(Math.random()*60),rot:Math.random()*Math.PI*2});
+                }
+            }
+            if(pnow<speedTileEnd&&pnow-_spdPfx>25){
+                _spdPfx=pnow;
+                for(let _si=0;_si<30;_si++){
+                    const _sa3=Math.random()*Math.PI*2,_ss3=1+Math.random()*4;
+                    const _grn=Math.random()>0.35;
+                    particles.push({wx:player.xPos+SCREEN_WM+(Math.random()-0.5)*32,wy:player.yPos+SCREEN_HM+(Math.random()-0.5)*32,
+                        vx:Math.cos(_sa3)*_ss3,vy:Math.sin(_sa3)*_ss3-0.8,
+                        born:pnow,life:350+Math.random()*350,size:2+Math.random()*6,
+                        finish:true,r:_grn?0:180,g:255,b:_grn?Math.floor(80+Math.random()*80):255,rot:Math.random()*Math.PI*2});
+                }
+            }}
             // Spawn particles for other players (ice drift + pending pfx events)
             {const pnow=performance.now();
             for(const[,op]of Object.entries(otherPlayers)){
@@ -3772,6 +3796,25 @@ Promise.all([
                         }
                     }
                 }
+                // Second chance and speed particles for other players
+                const _opScRem=op.sc_rem>0?Math.max(0,op.sc_rem-(pnow-op.sc_ts)):0;
+                if(_opScRem>0&&pnow-(op._sc2Pfx||0)>25){
+                    op._sc2Pfx=pnow;
+                    for(let _si=0;_si<30;_si++){
+                        const _sa2=Math.random()*Math.PI*2,_ss=1+Math.random()*4.5;
+                        const _gold=Math.random()>0.4;
+                        particles.push({wx:op.x+(Math.random()-0.5)*36,wy:op.y+(Math.random()-0.5)*36,vx:Math.cos(_sa2)*_ss,vy:Math.sin(_sa2)*_ss-1.2,born:pnow,life:400+Math.random()*400,size:3+Math.random()*7,finish:true,r:255,g:_gold?Math.floor(180+Math.random()*60):Math.floor(120+Math.random()*80),b:_gold?0:Math.floor(Math.random()*60),rot:Math.random()*Math.PI*2});
+                    }
+                }
+                const _opSpdRem=op.spd_rem>0?Math.max(0,op.spd_rem-(pnow-op.spd_ts)):0;
+                if(_opSpdRem>0&&pnow-(op._spdPfx||0)>25){
+                    op._spdPfx=pnow;
+                    for(let _si=0;_si<30;_si++){
+                        const _sa3=Math.random()*Math.PI*2,_ss3=1+Math.random()*4;
+                        const _grn=Math.random()>0.35;
+                        particles.push({wx:op.x+(Math.random()-0.5)*32,wy:op.y+(Math.random()-0.5)*32,vx:Math.cos(_sa3)*_ss3,vy:Math.sin(_sa3)*_ss3-0.8,born:pnow,life:350+Math.random()*350,size:2+Math.random()*6,finish:true,r:_grn?0:180,g:255,b:_grn?Math.floor(80+Math.random()*80):255,rot:Math.random()*Math.PI*2});
+                    }
+                }
                 op.pfxPending=[];
             }}
             for(let i=0;i<TILE_GRID_HEIGHT;i++)
@@ -3785,7 +3828,8 @@ Promise.all([
                 lastLobbyBroadcast=now;
                 const _bsT=Math.min((now-boostStretchStart)/500,1);
                 const _bsVal=_bsT<1?Math.exp(-3.5*_bsT)*Math.cos(2.2*Math.PI*_bsT):0;
-                lobbyChannel?.send({type:'broadcast',event:'pos',payload:{uid:currentUser.id,x:player.xPos+SCREEN_WM,y:player.yPos+SCREEN_HM,dir:player.drawDir,username:currentUsername,skin:selectedSkin,bsx:parseFloat((1-0.35*_bsVal).toFixed(3)),bsy:parseFloat((1+0.45*_bsVal).toFixed(3)),drift:_lobbyDrift,pfx:lobbyPfxQueue.splice(0)}});
+                const _pfxNow=performance.now();
+                lobbyChannel?.send({type:'broadcast',event:'pos',payload:{uid:currentUser.id,x:player.xPos+SCREEN_WM,y:player.yPos+SCREEN_HM,dir:player.drawDir,username:currentUsername,skin:selectedSkin,bsx:parseFloat((1-0.35*_bsVal).toFixed(3)),bsy:parseFloat((1+0.45*_bsVal).toFixed(3)),drift:_lobbyDrift,pfx:lobbyPfxQueue.splice(0),sc_rem:secondChanceImmune&&_pfxNow<secondChanceImmunityEnd?Math.round(secondChanceImmunityEnd-_pfxNow):0,sc_total:secondChanceImmunityTotal,spd_rem:_pfxNow<speedTileEnd?Math.round(speedTileEnd-_pfxNow):0,spd_el:_pfxNow<speedTileEnd?Math.round(_pfxNow-speedGlowStart):0}});
             }}
 
             // Remove stale other players
@@ -3827,17 +3871,18 @@ Promise.all([
             for(const p of particles){
                 const t=(pnow-p.born)/p.life;
                 p.wx+=p.vx*dt;p.wy+=p.vy*dt;
-                p.vx*=Math.pow(p.ice||p.wall||p.kill?0.80:p.smoke?0.90:0.85,dt);
-                p.vy*=Math.pow(p.ice||p.wall||p.kill?0.80:p.smoke?0.90:0.85,dt);
+                p.vx*=Math.pow(p.ice||p.wall||p.kill?0.80:p.finish?0.88:p.smoke?0.90:0.85,dt);
+                p.vy*=Math.pow(p.ice||p.wall||p.kill?0.80:p.finish?0.88:p.smoke?0.90:0.85,dt);
                 const sx=p.wx-player.xPos,sy=p.wy-player.yPos;
                 ctx.save();
-                if(p.ice||p.wall||p.kill){
+                if(p.ice||p.wall||p.kill||p.finish){
                     ctx.globalAlpha=Math.pow(1-t,1.5)*0.95;
                     ctx.translate(sx,sy);ctx.rotate(p.rot+t*Math.PI*4);
                     const s=p.size*(1-t*0.3);
                     const br=p.bright??0.5;
                     let r,g,b;
-                    if(p.wall){r=Math.floor(140+br*80);g=Math.floor(135+br*75);b=Math.floor(125+br*65);}
+                    if(p.finish){r=p.r;g=p.g;b=p.b;}
+                    else if(p.wall){r=Math.floor(140+br*80);g=Math.floor(135+br*75);b=Math.floor(125+br*65);}
                     else if(p.kill){r=255;g=Math.floor(30+br*80);b=0;}
                     else if(p.grass){r=Math.floor(30+br*90);g=Math.floor(130+br*110);b=Math.floor(20+br*50);}
                     else{r=Math.floor((15+br*195)*(1-t*0.3));g=Math.floor((60+br*170)*(1-t*0.1));b=255;}
@@ -3854,6 +3899,7 @@ Promise.all([
             }}
             // Other players
             {const sOff=5,pivY=10,visH=CAR_HEIGHT;
+            const _opRenderNow=performance.now();
             for(const[uid,op]of Object.entries(otherPlayers)){
                 const sx=op.x-player.xPos;
                 const sy=op.y-player.yPos;
@@ -3861,6 +3907,50 @@ Promise.all([
                 const opSk=SKINS[Math.min(op.skin||0,SKINS.length-1)];
                 const opW=opSk.sw*SKIN_SCALE,opH=CAR_HEIGHT;
                 const bsX=op.bsx||1,bsY=op.bsy||1;
+                // Ghost trail for other player
+                {const _opSpd=op.drift?.spd||0;
+                const _opSpdFade=Math.max(0,Math.min(1,(_opSpd-18)/6));
+                for(const g of(op.ghostTrail||[])){
+                    if((g.wx-op.x)*(g.wx-op.x)+(g.wy-op.y)*(g.wy-op.y)<28*28) continue;
+                    const _gtt=(_opRenderNow-g.born)/g.life;
+                    if(_gtt>=1) continue;
+                    const _gfi=Math.min(1,(_opRenderNow-g.born)/100);
+                    ctx.save();
+                    ctx.globalAlpha=Math.max(0,_gfi*(1-_gtt)*0.5*_opSpdFade);
+                    ctx.imageSmoothingEnabled=false;
+                    ctx.translate(g.wx-player.xPos,g.wy-player.yPos-pivY);
+                    ctx.rotate(g.dir*Math.PI/180);
+                    ctx.drawImage(carImg,opSk.sx,0,opSk.sw,SKIN_H,-opW/2,-opH/2,opW,opH);
+                    ctx.restore();
+                }}
+                // Second chance glow for other player
+                {const _opScRem2=op.sc_rem>0?Math.max(0,op.sc_rem-(_opRenderNow-op.sc_ts)):0;
+                if(_opScRem2>0){
+                    const _opScEl=op.sc_total-_opScRem2;
+                    const _opScF=Math.min(1,_opScEl/400)*Math.min(1,_opScRem2/400);
+                    ctx.save();
+                    const _opGrd=ctx.createRadialGradient(sx,sy-10,10,sx,sy-10,150);
+                    _opGrd.addColorStop(0,`rgba(255,230,0,${(0.38*_opScF).toFixed(2)})`);
+                    _opGrd.addColorStop(0.3,`rgba(255,200,0,${(0.22*_opScF).toFixed(2)})`);
+                    _opGrd.addColorStop(0.65,`rgba(255,140,0,${(0.12*_opScF).toFixed(2)})`);
+                    _opGrd.addColorStop(1,'rgba(255,80,0,0)');
+                    ctx.fillStyle=_opGrd;ctx.fillRect(sx-155,sy-165,310,330);
+                    ctx.restore();
+                }}
+                // Speed glow for other player
+                {const _opSpdRem2=op.spd_rem>0?Math.max(0,op.spd_rem-(_opRenderNow-op.spd_ts)):0;
+                if(_opSpdRem2>0){
+                    const _opSel=(op.spd_el||0)+(_opRenderNow-op.spd_ts);
+                    const _opSfa=Math.min(1,_opSel/300)*Math.min(1,_opSpdRem2/300);
+                    ctx.save();
+                    const _opSgrd=ctx.createRadialGradient(sx,sy-10,10,sx,sy-10,150);
+                    _opSgrd.addColorStop(0,`rgba(0,255,120,${(0.38*_opSfa).toFixed(2)})`);
+                    _opSgrd.addColorStop(0.3,`rgba(0,220,80,${(0.22*_opSfa).toFixed(2)})`);
+                    _opSgrd.addColorStop(0.65,`rgba(0,180,60,${(0.12*_opSfa).toFixed(2)})`);
+                    _opSgrd.addColorStop(1,'rgba(0,150,40,0)');
+                    ctx.fillStyle=_opSgrd;ctx.fillRect(sx-155,sy-165,310,330);
+                    ctx.restore();
+                }}
                 // Shadow
                 ctx.save();ctx.globalAlpha=50/255;ctx.filter='brightness(0)';ctx.imageSmoothingEnabled=false;
                 ctx.translate(sx-sOff,sy+sOff-pivY);ctx.rotate(dir);ctx.scale(bsX,bsY);
@@ -3919,6 +4009,34 @@ Promise.all([
                 ctx.drawImage(carImg,_lsk.sx,0,_lsk.sw,SKIN_H,-_lrW/2,-_lrH/2,_lrW,_lrH);
                 ctx.restore();
             }}
+            // Second chance golden aura (lobby local player)
+            if(secondChanceImmune&&performance.now()<secondChanceImmunityEnd){
+                const _lsNow=performance.now();
+                const _lscEl=_lsNow-(secondChanceImmunityEnd-secondChanceImmunityTotal);
+                const _lscRem=secondChanceImmunityEnd-_lsNow;
+                const _lscF=Math.min(1,_lscEl/400)*Math.min(1,_lscRem/400);
+                ctx.save();
+                const _lgrd=ctx.createRadialGradient(SCREEN_WM,SCREEN_HM-10,10,SCREEN_WM,SCREEN_HM-10,150);
+                _lgrd.addColorStop(0,`rgba(255,230,0,${(0.38*_lscF).toFixed(2)})`);
+                _lgrd.addColorStop(0.3,`rgba(255,200,0,${(0.22*_lscF).toFixed(2)})`);
+                _lgrd.addColorStop(0.65,`rgba(255,140,0,${(0.12*_lscF).toFixed(2)})`);
+                _lgrd.addColorStop(1,'rgba(255,80,0,0)');
+                ctx.fillStyle=_lgrd;ctx.fillRect(SCREEN_WM-155,SCREEN_HM-165,310,330);
+                ctx.restore();
+            }
+            // Speed tile aura (lobby local player)
+            if(performance.now()<speedTileEnd){
+                const _lsn=performance.now(),_lsel=_lsn-speedGlowStart,_lsrem=speedTileEnd-_lsn;
+                const _lsfa=Math.min(1,_lsel/300)*Math.min(1,_lsrem/300);
+                ctx.save();
+                const _lsgrd=ctx.createRadialGradient(SCREEN_WM,SCREEN_HM-10,10,SCREEN_WM,SCREEN_HM-10,150);
+                _lsgrd.addColorStop(0,`rgba(0,255,120,${(0.38*_lsfa).toFixed(2)})`);
+                _lsgrd.addColorStop(0.3,`rgba(0,220,80,${(0.22*_lsfa).toFixed(2)})`);
+                _lsgrd.addColorStop(0.65,`rgba(0,180,60,${(0.12*_lsfa).toFixed(2)})`);
+                _lsgrd.addColorStop(1,'rgba(0,150,40,0)');
+                ctx.fillStyle=_lsgrd;ctx.fillRect(SCREEN_WM-155,SCREEN_HM-165,310,330);
+                ctx.restore();
+            }
             player.render(ctx,carImg,false);
             ctx.restore();
 
