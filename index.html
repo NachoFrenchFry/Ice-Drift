@@ -1974,7 +1974,7 @@ function joinLobbyChannel(){
             if(payload.uid===currentUser?.id)return;
             const prev=otherPlayers[payload.uid]||{};
             const _rcvNow=performance.now();
-            otherPlayers[payload.uid]={x:payload.x,y:payload.y,dir:payload.dir||270,username:payload.username||'',skin:payload.skin||0,bsx:payload.bsx||1,bsy:payload.bsy||1,ts:_rcvNow,drift:payload.drift||null,pfxPending:[...(prev.pfxPending||[]),...(payload.pfx||[])],iceAccum:prev.iceAccum||0,sc_rem:payload.sc_rem||0,sc_total:payload.sc_total||1,sc_ts:_rcvNow,spd_rem:payload.spd_rem||0,spd_el:payload.spd_el||0,spd_ts:_rcvNow,_sc2Pfx:prev._sc2Pfx||0,_spdPfx:prev._spdPfx||0,ghostTrail:(()=>{let _gt=(prev.ghostTrail||[]).filter(g=>_rcvNow-g.born<g.life);const _last=_gt.length>0?_gt[_gt.length-1]:null;const _dx=_last?payload.x-_last.wx:999,_dy=_last?payload.y-_last.wy:999;if((payload.drift?.spd||0)>20&&_dx*_dx+_dy*_dy>22*22)_gt.push({wx:payload.x,wy:payload.y,dir:payload.dir||270,born:_rcvNow,life:380});return _gt;})()};
+            otherPlayers[payload.uid]={x:payload.x,y:payload.y,dir:payload.dir||270,username:payload.username||'',skin:payload.skin||0,bsx:payload.bsx||1,bsy:payload.bsy||1,ts:_rcvNow,drift:payload.drift||null,pfxPending:[...(prev.pfxPending||[]),...(payload.pfx||[])],iceAccum:prev.iceAccum||0,sc_rem:payload.sc_rem||0,sc_total:payload.sc_total||1,sc_ts:_rcvNow,spd_rem:payload.spd_rem||0,spd_el:payload.spd_el||0,spd_ts:_rcvNow,_sc2Pfx:prev._sc2Pfx||0,_spdPfx:prev._spdPfx||0,_devPfx:prev._devPfx||0,ghostTrail:(()=>{let _gt=(prev.ghostTrail||[]).filter(g=>_rcvNow-g.born<g.life);const _last=_gt.length>0?_gt[_gt.length-1]:null;const _dx=_last?payload.x-_last.wx:999,_dy=_last?payload.y-_last.wy:999;if((payload.drift?.spd||0)>20&&_dx*_dx+_dy*_dy>22*22)_gt.push({wx:payload.x,wy:payload.y,dir:payload.dir||270,born:_rcvNow,life:380});return _gt;})()};
         })
         .on('presence',{event:'leave'},({leftPresences})=>{
             for(const p of leftPresences)delete otherPlayers[p.key];
@@ -3975,6 +3975,25 @@ Promise.all([
                         const _sa3=Math.random()*Math.PI*2,_ss3=1+Math.random()*4;
                         const _grn=Math.random()>0.35;
                         particles.push({wx:op.x+(Math.random()-0.5)*32,wy:op.y+(Math.random()-0.5)*32,vx:Math.cos(_sa3)*_ss3,vy:Math.sin(_sa3)*_ss3-0.8,born:pnow,life:350+Math.random()*350,size:2+Math.random()*6,finish:true,r:_grn?0:180,g:255,b:_grn?Math.floor(80+Math.random()*80):255,rot:Math.random()*Math.PI*2});
+                    }
+                }
+                // Dev skin corner sparks + fire trail for other players
+                if(SKINS[op.skin]?.exclusive&&(op.username||'').toLowerCase()==='nachofrenchfry'&&pnow-(op._devPfx||0)>25){
+                    op._devPfx=pnow;
+                    const _oda=((op.dir||270)*Math.PI/180),_odc=Math.cos(_oda),_ods=Math.sin(_oda);
+                    const _ocx=op.x,_ocy=op.y-10;
+                    for(const[_cx,_cy]of[[-37.5,-42],[37.5,-42],[-37.5,42],[37.5,42]]){
+                        const _cpx=_ocx+_cx*_odc-_cy*_ods,_cpy=_ocy+_cx*_ods+_cy*_odc;
+                        for(let _k=0;_k<2;_k++){
+                            const _ca=Math.random()*Math.PI*2,_cs=1.5+Math.random()*3.5;
+                            particles.push({wx:_cpx+(Math.random()-0.5)*5,wy:_cpy+(Math.random()-0.5)*5,vx:Math.cos(_ca)*_cs,vy:Math.sin(_ca)*_cs,born:pnow,life:300+Math.random()*300,size:4+Math.random()*7,finish:true,r:80,g:Math.floor(190+Math.random()*55),b:255,rot:Math.random()*Math.PI*2});
+                        }
+                    }
+                    const _obwx=_ocx-42*_ods,_obwy=_ocy+42*_odc;
+                    for(let _fi=0;_fi<3;_fi++){
+                        const _fSpd=2.5+Math.random()*3;
+                        if(Math.random()<0.3){particles.push({wx:_obwx+(Math.random()-0.5)*8,wy:_obwy+(Math.random()-0.5)*8,vx:(-_ods+(Math.random()-0.5)*0.5)*_fSpd,vy:(_odc+(Math.random()-0.5)*0.5)*_fSpd,born:pnow,life:300+Math.random()*200,size:5+Math.random()*5,smoke:true});}
+                        else{particles.push({wx:_obwx+(Math.random()-0.5)*6,wy:_obwy+(Math.random()-0.5)*6,vx:(-_ods+(Math.random()-0.5)*0.5)*_fSpd,vy:(_odc+(Math.random()-0.5)*0.5)*_fSpd,born:pnow,life:100+Math.random()*120,size:3+Math.random()*4});}
                     }
                 }
                 op.pfxPending=[];
