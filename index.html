@@ -1306,7 +1306,7 @@ class Car {
             this.yPos=checkpointY!==null?checkpointY:INITIAL_CAR_Y;
             this.xVel=0;this.yVel=0;
             const _isCheckpointRespawn=checkpointX!==null;
-            finish=false;gameStartTime=performance.now()-(_isCheckpointRespawn?3000:0);startWallDeactivated=_isCheckpointRespawn;boostOverriding=false;particles=[];iceParticleAccum=0;prevIceVelX=0;prevIceVelY=0;countdownGoEnd=0;evasionDmgCheckEnd=0;ghostTrail=[];ghostTrailLastRecord=0;
+            finish=false;if(!_isCheckpointRespawn)gameStartTime=performance.now();startWallDeactivated=_isCheckpointRespawn;boostOverriding=false;particles=[];iceParticleAccum=0;prevIceVelX=0;prevIceVelY=0;countdownGoEnd=0;evasionDmgCheckEnd=0;ghostTrail=[];ghostTrailLastRecord=0;
             if(!_isCheckpointRespawn) for(let r=0;r<TILE_GRID_HEIGHT;r++) for(let c=0;c<TILE_GRID_WIDTH;c++)
                 if(tiles[r][c].type==="START_WALL") tiles[r][c].active=true;
         };
