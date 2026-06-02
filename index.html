@@ -1898,24 +1898,36 @@ const db=supabase.createClient(
 async function dbLoadProfile(uid){
     const{data}=await db.from('profiles').select('*').eq('id',uid).single();
     if(!data)return;
+    // Check localStorage for a snapshot newer than what's in DB (e.g. save was in-flight on refresh)
+    let d=data;
+    try{
+        const _lsRaw=localStorage.getItem('icedrift_snap_'+uid);
+        if(_lsRaw){
+            const _ls=JSON.parse(_lsRaw);
+            if(_ls.updated_at&&(!data.updated_at||_ls.updated_at>data.updated_at)){
+                d=Object.assign({},data,_ls);
+                db.from('profiles').update(_ls).eq('id',uid);
+            }
+        }
+    }catch(e){}
     currentUsername=data.username||'';
-    driftCoins=data.drift_coins||0;
-    totalTalentPoints=Math.max(0,data.total_talent_points||0);
-    spentTalentPoints=data.spent_talent_points||0;
-    if(Array.isArray(data.talents_purchased)&&data.talents_purchased.length>0){
-        const stored=data.talents_purchased.slice(0,TALENT_COUNT);
+    driftCoins=d.drift_coins||0;
+    totalTalentPoints=Math.max(0,d.total_talent_points||0);
+    spentTalentPoints=d.spent_talent_points||0;
+    if(Array.isArray(d.talents_purchased)&&d.talents_purchased.length>0){
+        const stored=d.talents_purchased.slice(0,TALENT_COUNT);
         while(stored.length<TALENT_COUNT)stored.push(false);
         talentPurchased=stored;
     }else{talentPurchased=new Array(TALENT_COUNT).fill(false);}
     talentRecomputeEffects();
-    if(Array.isArray(data.owned_skins)&&data.owned_skins.length>0){
-        ownedSkins=data.owned_skins;
-        selectedSkin=Math.min(data.selected_skin||0,SKINS.length-1);
+    if(Array.isArray(d.owned_skins)&&d.owned_skins.length>0){
+        ownedSkins=d.owned_skins;
+        selectedSkin=Math.min(d.selected_skin||0,SKINS.length-1);
         localStorage.setItem('icedrift_owned_skins',JSON.stringify(ownedSkins));
         localStorage.setItem('icedrift_skin',selectedSkin);
     }
     mutedUntil=data.muted_until?new Date(data.muted_until).getTime():0;
-    lastUpdateSeen=data.last_update_seen||null;
+    lastUpdateSeen=d.last_update_seen||null;
     hasNewUpdate=currentUser&&(lastUpdateSeen!==UPDATE_LOG[0].date);
 }
 let _saveProfileTimer=null;
@@ -1940,6 +1952,7 @@ async function _dbSaveProfileNow(){
         last_update_seen:lastUpdateSeen,
         updated_at:new Date().toISOString()
     };
+    try{localStorage.setItem('icedrift_snap_'+currentUser.id,JSON.stringify(_snap));}catch(e){}
     const{error}=await db.from('profiles').update(_snap).eq('id',currentUser.id);
     if(error)console.error('[save]',error.message);
 }
@@ -3524,11 +3537,15 @@ Promise.all([
                         if(inRect(mouseX,mouseY,cuX,cuY,cuW,cuH)){authError='';inputValues.username='';setActiveInput(null);page='CHANGE_USERNAME';}
                         if(inRect(mouseX,mouseY,cpX,cpY,cpW,cpH)){authError='';inputValues.password='';setActiveInput(null);page='CHANGE_PASSWORD';}
                         if(inRect(mouseX,mouseY,loX,loY,loW,loH)){
-                            db.auth.signOut();
-                            leaveChatChannel();leaveLobbyChannel();leaveRaceChallengeChannel();unsubscribeFromProfile();
-                            currentUser=null;currentUsername='';driftCoins=0;totalTalentPoints=0;spentTalentPoints=0;
-                            talentPurchased=new Array(TALENT_COUNT).fill(false);talentRecomputeEffects();
-                            inputValues.username='';inputValues.password='';deleteConfirm=false;setChatActive(false);page='MENU';
+                            (async()=>{
+                                if(_saveProfileTimer){clearTimeout(_saveProfileTimer);_saveProfileTimer=null;}
+                                await _dbSaveProfileNow();
+                                db.auth.signOut();
+                                leaveChatChannel();leaveLobbyChannel();leaveRaceChallengeChannel();unsubscribeFromProfile();
+                                currentUser=null;currentUsername='';driftCoins=0;totalTalentPoints=0;spentTalentPoints=0;
+                                talentPurchased=new Array(TALENT_COUNT).fill(false);talentRecomputeEffects();
+                                inputValues.username='';inputValues.password='';deleteConfirm=false;setChatActive(false);page='MENU';
+                            })();
                         }
                         if(inRect(mouseX,mouseY,delX,delY,delW,delH)) deleteConfirm=!deleteConfirm;
                     }
