@@ -2168,13 +2168,13 @@ function checkRaceEnd(){
 function applyRaceResult(won){
     if(raceResult)return;
     const isRandom=raceMode==='random';
-    const _gainDc=isRandom?Math.ceil((raceOpponent?.dc||0)*0.1):0;
-    const _gainTp=isRandom?Math.ceil((raceOpponent?.tp||0)*0.1):0;
+    const _gainDc=isRandom?Math.max(0,Math.ceil((raceOpponent?.dc||0)*0.1)):0;
+    const _gainTp=isRandom?Math.max(0,Math.ceil((raceOpponent?.tp||0)*0.1)):0;
     const _lossDc=isRandom?Math.ceil(raceMyDcAtStart*0.1):0;
     const _lossTp=isRandom?Math.ceil(raceMyTpAtStart*0.1):0;
     if(won){driftCoins+=_gainDc;totalTalentPoints+=_gainTp;}
     else{driftCoins=Math.max(0,driftCoins-_lossDc);totalTalentPoints=Math.max(spentTalentPoints,totalTalentPoints-_lossTp);}
-    dbSaveProfile();
+    dbSaveProfileNow();
     raceResult={won,dcDelta:won?_gainDc:-_lossDc,tpDelta:won?_gainTp:-_lossTp};
     finish=false;levelLoaded=false;page='RACE_RESULT';
 }
@@ -2205,7 +2205,7 @@ function subscribeToProfile(){
     profileChannel=db.channel('profile-'+currentUser.id)
         .on('postgres_changes',{event:'UPDATE',schema:'public',table:'profiles',filter:'id=eq.'+currentUser.id},payload=>{
             const d=payload.new;
-            if(typeof d.drift_coins==='number') driftCoins=d.drift_coins;
+            if(typeof d.drift_coins==='number'&&!_saveProfileTimer) driftCoins=d.drift_coins;
             if(typeof d.total_talent_points==='number'&&!_saveProfileTimer){totalTalentPoints=Math.max(0,d.total_talent_points);talentRecomputeEffects();}
             if(d.muted_until!==undefined) mutedUntil=d.muted_until?new Date(d.muted_until).getTime():0;
         })
