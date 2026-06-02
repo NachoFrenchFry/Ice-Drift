@@ -650,7 +650,7 @@ let rightMouseDown=false,rightMouseJustPressed=false;
 let shiftJustPressed=false,shiftWasDown=false;
 let mobileControls=localStorage.getItem('mobileControls')==='1';
 let aimTouchId=null,boostTouchId=null;
-function getMobBoostRect(){return{x:SCREEN_WIDTH-150,y:SCREEN_HEIGHT-150,w:120,h:120};};
+function getMobBoostRect(){return{x:30,y:SCREEN_HEIGHT-150,w:120,h:120};};
 let showHitboxes=false;
 // Auth state
 const DEVELOPERS=['nachofrenchfry'];
@@ -746,6 +746,18 @@ let lobbyPfxQueue=[],_lobbyDrift=null;
 let killGlowEnd=0,killGlowDur=600,screenShakeEnd=0,screenShakeDur=500,screenShakeMaxAmt=10;
 let countdownGoEnd=0;
 let lobbyChannel=null,otherPlayers={},lastLobbyBroadcast=0,lobbyLoaded=false;
+let raceState='menu',raceMode='random';
+let raceChannel=null,raceQueueChannel=null,raceChallengeChannel=null;
+let raceOpponent=null,raceSessionId=null,raceMap=0;
+let raceMyDcAtStart=0,raceMyTpAtStart=0;
+let raceOppX=0,raceOppY=0,raceOppDir=270,raceOppFin=false,raceOppForfeit=false,raceOppFinTime=0;
+let raceOppGhostTrail=[],raceOppLastX=0,raceOppLastY=0,raceOppLastTs=0,raceOppSpd=0;
+let raceOppDrift=null,raceOppIceAccum=0,raceOppDevPfx=0;
+let raceLocalFin=false,raceLocalFinTime=0,raceResult=null;
+let raceChallengeInput='',raceChallengeError='',raceIncoming=null;
+let raceCountdownStart=0,raceLastBroadcast=0,raceStartAt=0;
+let raceMapAnimStart=0;
+let _raceProposed=null;
 let chatChannel=null,chatMessages=[],chatInput='',chatActive=false,chatCaretPos=0;
 let profileChannel=null;
 let shiftPressLog=[],antiCheatFlagged=false;
@@ -852,7 +864,7 @@ function talentBuyTalent(id){
     if(b===9)autoBuy(2,7);
     if(b===10){autoBuy(7,3);autoBuy(8,1);}
     for(let x=0;x<=l;x++){const tid=b*LEVELS_PER_BRANCH+x;if(!talentPurchased[tid]){talentPurchased[tid]=true;spentTalentPoints+=talentCost(b,x);talentApplyEffect(tid);}}
-    dbSaveProfile();
+    dbSaveProfileNow();
 }
 function talentDeselTalent(id){
     const b=Math.floor(id/LEVELS_PER_BRANCH),l=id%LEVELS_PER_BRANCH;
@@ -866,7 +878,7 @@ function talentDeselTalent(id){
     if(!talentPurchased[2*LEVELS_PER_BRANCH+7])clear(9);
     if(!talentPurchased[8*LEVELS_PER_BRANCH+1])clear(10);
     talentRecomputeEffects();
-    dbSaveProfile();
+    dbSaveProfileNow();
 }
 function talentBranchName(b){return["VISION","SPEED","BOOST","RELOAD","WALL BOUNCE","EXTRA CHARGES","MINI MAP","BRAKE","2ND CHANCE","HOLD BOOST","EVASION"][b];}
 function talentKeyStr(b){return["","","Press Shift to boost","","","","","Right-click to brake","","Hold Shift to boost",""][b]||"";}
@@ -1291,7 +1303,12 @@ class Car {
                         finish:true,r:_fc[0],g:_fc[1],b:_fc[2],rot:Math.random()*Math.PI*2});
                 }}
                 finishTime=(finishTick-gameStartTime-3000)/1000;
-                if(!antiCheatFlagged){
+                if(page==='RACE_GAME'){
+                    raceLocalFin=true;raceLocalFinTime=finishTime;
+                    raceChannel?.send({type:'broadcast',event:'finish',payload:{uid:currentUser?.id,time:finishTime}});
+                    checkRaceEnd();
+                }
+                if(!antiCheatFlagged&&page!=='RACE_GAME'){
                 const dcRewards=[1,5,10,20,100];
                 driftCoins+=dcRewards[currentLevel]||0;
                 dbSaveProfile();
@@ -1306,7 +1323,8 @@ class Car {
             this.yPos=checkpointY!==null?checkpointY:INITIAL_CAR_Y;
             this.xVel=0;this.yVel=0;
             const _isCheckpointRespawn=checkpointX!==null;
-            finish=false;if(!_isCheckpointRespawn)gameStartTime=performance.now();startWallDeactivated=_isCheckpointRespawn;boostOverriding=false;particles=[];iceParticleAccum=0;prevIceVelX=0;prevIceVelY=0;countdownGoEnd=0;evasionDmgCheckEnd=0;ghostTrail=[];ghostTrailLastRecord=0;
+            const _skipCountdown=_isCheckpointRespawn||page==='RACE_GAME';
+            finish=false;if(!_skipCountdown)gameStartTime=performance.now();startWallDeactivated=_skipCountdown;boostOverriding=false;particles=[];iceParticleAccum=0;prevIceVelX=0;prevIceVelY=0;countdownGoEnd=0;evasionDmgCheckEnd=0;ghostTrail=[];ghostTrailLastRecord=0;
             if(!_isCheckpointRespawn) for(let r=0;r<TILE_GRID_HEIGHT;r++) for(let c=0;c<TILE_GRID_WIDTH;c++)
                 if(tiles[r][c].type==="START_WALL") tiles[r][c].active=true;
         };
@@ -1791,7 +1809,7 @@ canvas.addEventListener('mousemove',e=>{
 canvas.addEventListener('mousedown',e=>{
     if(e.button===0){
         const mb=getMobBoostRect();
-        if(mobileControls&&(page==='GAME'||page==='LOBBY')&&mouseX>=mb.x&&mouseY>=mb.y&&mouseX<=mb.x+mb.w&&mouseY<=mb.y+mb.h){
+        if(mobileControls&&(page==='GAME'||page==='LOBBY'||page==='RACE_GAME')&&mouseX>=mb.x&&mouseY>=mb.y&&mouseX<=mb.x+mb.w&&mouseY<=mb.y+mb.h){
             shiftJustPressed=true;shiftWasDown=true;
         }else{mouseJustPressed=true;mouseDown=true;}
     }
@@ -1807,7 +1825,7 @@ canvas.addEventListener('touchstart',e=>{
     for(const touch of e.changedTouches){
         const[tx,ty]=toDesign(touch.clientX,touch.clientY);
         const mb=getMobBoostRect();
-        const onBoost=mobileControls&&(page==='GAME'||page==='LOBBY')
+        const onBoost=mobileControls&&(page==='GAME'||page==='LOBBY'||page==='RACE_GAME')
             &&tx>=mb.x&&ty>=mb.y&&tx<=mb.x+mb.w&&ty<=mb.y+mb.h;
         const isScrollPage=page==='LEADERBOARD'||page==='UPDATES'||page==='SHOP'||page==='SETTINGS';
         const CHBX=170,CHBW=460,CHINY=SCREEN_HEIGHT-40-30;
@@ -1835,7 +1853,7 @@ canvas.addEventListener('touchstart',e=>{
                 }else if(ir.pw&&tx>=ir.pw.x&&tx<=ir.pw.x+ir.pw.w&&ty>=ir.pw.y&&ty<=ir.pw.y+ir.pw.h){
                     hiddenPW.value=inputValues.password;hiddenPW.focus();activeInput='password';
                 }
-            }else if((page==='GAME'||page==='LOBBY')&&currentUser&&ty>=SCREEN_HEIGHT-75&&ty<=SCREEN_HEIGHT-25&&tx>=140&&tx<=SCREEN_WIDTH-5){
+            }else if((page==='GAME'||page==='LOBBY'||page==='RACE_GAME')&&currentUser&&ty>=SCREEN_HEIGHT-75&&ty<=SCREEN_HEIGHT-25&&tx>=140&&tx<=SCREEN_WIDTH-5){
                 setChatActive(true);
             }
         }
@@ -1900,18 +1918,35 @@ async function dbLoadProfile(uid){
     lastUpdateSeen=data.last_update_seen||null;
     hasNewUpdate=currentUser&&(lastUpdateSeen!==UPDATE_LOG[0].date);
 }
-async function dbSaveProfile(){
+let _saveProfileTimer=null;
+function dbSaveProfile(){
+    if(_saveProfileTimer)clearTimeout(_saveProfileTimer);
+    _saveProfileTimer=setTimeout(_dbSaveProfileNow,400);
+}
+function dbSaveProfileNow(){
+    if(_saveProfileTimer){clearTimeout(_saveProfileTimer);_saveProfileTimer=null;}
+    _dbSaveProfileNow();
+}
+async function _dbSaveProfileNow(){
+    _saveProfileTimer=null;
     if(!currentUser)return;
-    await db.from('profiles').update({
+    const _snap={
         drift_coins:driftCoins,
         spent_talent_points:spentTalentPoints,
-        talents_purchased:talentPurchased,
+        talents_purchased:[...talentPurchased],
         selected_skin:selectedSkin,
-        owned_skins:ownedSkins,
+        owned_skins:[...ownedSkins],
         last_update_seen:lastUpdateSeen,
         updated_at:new Date().toISOString()
-    }).eq('id',currentUser.id);
+    };
+    const{error}=await db.from('profiles').update(_snap).eq('id',currentUser.id);
+    if(error)console.error('[save]',error.message);
 }
+document.addEventListener('visibilitychange',()=>{
+    if(document.visibilityState==='hidden'&&(_saveProfileTimer||currentUser)){
+        if(_saveProfileTimer){clearTimeout(_saveProfileTimer);_saveProfileTimer=null;_dbSaveProfileNow();}
+    }
+});
 async function dbSaveTime(level,time){
     if(!currentUser||isPrivileged(currentUsername))return;
     const{data:existing}=await db.from('times').select('time').eq('user_id',currentUser.id).eq('level',level).maybeSingle();
@@ -1928,7 +1963,7 @@ async function dbLoadRecords(){
 async function dbDeleteAccount(){
     if(!currentUser)return;
     await db.rpc('delete_account');
-    leaveChatChannel();leaveLobbyChannel();unsubscribeFromProfile();
+    leaveChatChannel();leaveLobbyChannel();leaveRaceChallengeChannel();unsubscribeFromProfile();
     currentUser=null;currentUsername='';driftCoins=0;totalTalentPoints=0;spentTalentPoints=0;
     talentPurchased=new Array(TALENT_COUNT).fill(false);talentRecomputeEffects();
     inputValues.username='';inputValues.password='';deleteConfirm=false;
@@ -1989,6 +2024,165 @@ function leaveLobbyChannel(){
     lobbyChannel=null;
     otherPlayers={};
 }
+function raceGenId(){return Math.random().toString(36).slice(2)+Date.now().toString(36);}
+
+function joinRaceQueueChannel(){
+    if(raceQueueChannel||!currentUser)return;
+    _raceProposed=null;
+    raceQueueChannel=db.channel('ice-drift-race-queue',{config:{presence:{key:currentUser.id}}});
+    raceQueueChannel
+        .on('broadcast',{event:'match_propose'},({payload})=>{
+            if(payload.toUid!==currentUser.id||_raceProposed)return;
+            raceOpponent={uid:payload.fromUid,username:payload.fromUsername,dc:payload.fromDc,tp:payload.fromTp,skin:payload.fromSkin||0};
+            raceSessionId=payload.sessionId;raceMap=payload.map;
+            raceQueueChannel.send({type:'broadcast',event:'match_accept',payload:{toUid:payload.fromUid,fromUid:currentUser.id,fromUsername:currentUsername,fromDc:driftCoins,fromTp:totalTalentPoints,fromSkin:selectedSkin}});
+            leaveRaceQueueChannel();startRaceSession();
+        })
+        .on('broadcast',{event:'match_accept'},({payload})=>{
+            if(payload.toUid!==currentUser.id)return;
+            raceOpponent={uid:payload.fromUid,username:payload.fromUsername,dc:payload.fromDc,tp:payload.fromTp,skin:payload.fromSkin||0};
+            leaveRaceQueueChannel();startRaceSession();
+        })
+        .on('presence',{event:'sync'},()=>{
+            if(_raceProposed||raceState!=='queue')return;
+            const st=raceQueueChannel.presenceState();
+            const allUids=Object.keys(st).sort();
+            // Only the lowest-uid player proposes to avoid both proposing simultaneously
+            if(allUids.length>=2&&allUids[0]===currentUser.id){
+                const targetUid=allUids[1];
+                _raceProposed=targetUid;
+                raceSessionId=raceGenId();raceMap=Math.floor(Math.random()*5);
+                raceQueueChannel.send({type:'broadcast',event:'match_propose',payload:{fromUid:currentUser.id,fromUsername:currentUsername,fromDc:driftCoins,fromTp:totalTalentPoints,fromSkin:selectedSkin,toUid:targetUid,sessionId:raceSessionId,map:raceMap}});
+            }
+        })
+        .subscribe(async(s)=>{if(s==='SUBSCRIBED')await raceQueueChannel.track({uid:currentUser.id});});
+}
+function leaveRaceQueueChannel(){
+    if(!raceQueueChannel)return;
+    raceQueueChannel.unsubscribe();raceQueueChannel=null;_raceProposed=null;
+}
+
+function joinRaceChallengeChannel(){
+    if(raceChallengeChannel||!currentUser)return;
+    raceChallengeChannel=db.channel('ice-drift-race-challenges');
+    raceChallengeChannel
+        .on('broadcast',{event:'challenge'},({payload})=>{
+            if((payload.toUsername||'').toLowerCase()!==currentUsername.toLowerCase())return;
+            raceIncoming={fromUid:payload.fromUid,fromUsername:payload.fromUsername,sessionId:payload.sessionId,map:payload.map,fromDc:payload.fromDc,fromTp:payload.fromTp};
+        })
+        .on('broadcast',{event:'challenge_accept'},({payload})=>{
+            if(payload.sessionId!==raceSessionId||raceState!=='challenge_wait')return;
+            raceOpponent={uid:payload.fromUid,username:payload.fromUsername,dc:payload.fromDc,tp:payload.fromTp};
+            startRaceSession();
+        })
+        .on('broadcast',{event:'challenge_decline'},({payload})=>{
+            if(payload.sessionId!==raceSessionId||raceState!=='challenge_wait')return;
+            raceChallengeError=(payload.fromUsername||'PLAYER').toUpperCase()+' DECLINED';
+            raceState='challenge_send';raceSessionId=null;
+        })
+        .subscribe();
+}
+function leaveRaceChallengeChannel(){
+    if(!raceChallengeChannel)return;
+    raceChallengeChannel.unsubscribe();raceChallengeChannel=null;
+}
+
+function sendRaceChallenge(){
+    if(!raceChallengeChannel||!raceChallengeInput.trim()){return;}
+    if(raceChallengeInput.trim().toLowerCase()===currentUsername.toLowerCase()){raceChallengeError='CANNOT CHALLENGE YOURSELF';return;}
+    raceSessionId=raceGenId();raceMap=Math.floor(Math.random()*5);
+    raceChallengeChannel.send({type:'broadcast',event:'challenge',payload:{fromUid:currentUser.id,fromUsername:currentUsername,toUsername:raceChallengeInput.trim().toLowerCase(),sessionId:raceSessionId,map:raceMap,fromDc:driftCoins,fromTp:totalTalentPoints}});
+    raceChallengeError='';raceState='challenge_wait';
+}
+function acceptRaceChallenge(){
+    if(!raceIncoming||!raceChallengeChannel)return;
+    raceOpponent={uid:raceIncoming.fromUid,username:raceIncoming.fromUsername,dc:raceIncoming.fromDc,tp:raceIncoming.fromTp};
+    raceSessionId=raceIncoming.sessionId;raceMap=raceIncoming.map;
+    raceChallengeChannel.send({type:'broadcast',event:'challenge_accept',payload:{fromUid:currentUser.id,fromUsername:currentUsername,fromDc:driftCoins,fromTp:totalTalentPoints,sessionId:raceSessionId}});
+    raceIncoming=null;startRaceSession();
+}
+function declineRaceChallenge(){
+    if(!raceIncoming||!raceChallengeChannel)return;
+    raceChallengeChannel.send({type:'broadcast',event:'challenge_decline',payload:{fromUid:currentUser.id,fromUsername:currentUsername,sessionId:raceIncoming.sessionId}});
+    raceIncoming=null;
+}
+
+function startRaceSession(){
+    raceState='ready';
+    raceMyDcAtStart=driftCoins;raceMyTpAtStart=totalTalentPoints;
+    raceOppFin=false;raceOppForfeit=false;raceLocalFin=false;raceResult=null;
+    raceOppX=SCREEN_WM;raceOppY=SCREEN_HM;raceOppDir=270;raceOppSpd=0;raceOppGhostTrail=[];
+    raceOppDrift=null;raceOppIceAccum=0;raceOppDevPfx=0;
+    if(raceChannel){raceChannel.unsubscribe();raceChannel=null;}
+    raceChannel=db.channel('ice-drift-race-'+raceSessionId,{config:{presence:{key:currentUser.id}}});
+    raceChannel
+        .on('broadcast',{event:'pos'},({payload})=>{
+            if(payload.uid!==raceOpponent?.uid)return;
+            const _rNow=performance.now();
+            raceOppX=payload.x;raceOppY=payload.y;raceOppDir=payload.dir||270;
+            raceOppSpd=payload.spd||0;raceOppDrift=payload.drift||null;
+            // ghost trail
+            raceOppGhostTrail=raceOppGhostTrail.filter(g=>_rNow-g.born<g.life);
+            const _gl=raceOppGhostTrail.length>0?raceOppGhostTrail[raceOppGhostTrail.length-1]:null;
+            const _dx=_gl?raceOppX-_gl.wx:999,_dy=_gl?raceOppY-_gl.wy:999;
+            if(raceOppSpd>20&&_dx*_dx+_dy*_dy>22*22)
+                raceOppGhostTrail.push({wx:raceOppX,wy:raceOppY,dir:raceOppDir,born:_rNow,life:380});
+        })
+        .on('broadcast',{event:'finish'},({payload})=>{
+            if(payload.uid!==raceOpponent?.uid)return;
+            raceOppFin=true;raceOppFinTime=payload.time;checkRaceEnd();
+        })
+        .on('broadcast',{event:'forfeit'},({payload})=>{
+            if(payload.uid!==raceOpponent?.uid)return;
+            raceOppForfeit=true;checkRaceEnd();
+        })
+        .on('broadcast',{event:'race_start'},({payload})=>{
+            if(raceState!=='ready')return;
+            raceStartAt=payload.startAt;
+            raceState='map_anim';raceMapAnimStart=performance.now();
+            currentLevel=raceMap;levelLoaded=false;
+        })
+        .on('presence',{event:'sync'},()=>{
+            if(raceState!=='ready')return;
+            const st=raceChannel.presenceState();
+            const uids=Object.keys(st).sort();
+            if(uids.length>=2&&uids[0]===currentUser.id){
+                // lowest uid initiates the start
+                raceStartAt=Date.now()+4500;
+                raceChannel.send({type:'broadcast',event:'race_start',payload:{startAt:raceStartAt}});
+                raceState='map_anim';raceMapAnimStart=performance.now();
+                currentLevel=raceMap;levelLoaded=false;
+            }
+        })
+        .subscribe(async(s)=>{
+            if(s==='SUBSCRIBED')await raceChannel.track({uid:currentUser.id,username:currentUsername});
+        });
+}
+function checkRaceEnd(){
+    if(raceResult)return;
+    if(raceOppForfeit){applyRaceResult(true);return;}
+    if(raceLocalFin){applyRaceResult(!raceOppFin||raceLocalFinTime<raceOppFinTime);return;}
+    if(raceOppFin){applyRaceResult(false);}
+}
+function applyRaceResult(won){
+    if(raceResult)return;
+    const isRandom=raceMode==='random';
+    const _gainDc=isRandom?Math.ceil((raceOpponent?.dc||0)*0.1):0;
+    const _gainTp=isRandom?Math.ceil((raceOpponent?.tp||0)*0.1):0;
+    const _lossDc=isRandom?Math.ceil(raceMyDcAtStart*0.1):0;
+    const _lossTp=isRandom?Math.ceil(raceMyTpAtStart*0.1):0;
+    if(won){driftCoins+=_gainDc;totalTalentPoints+=_gainTp;}
+    else{driftCoins=Math.max(0,driftCoins-_lossDc);totalTalentPoints=Math.max(0,totalTalentPoints-_lossTp);}
+    dbSaveProfile();
+    raceResult={won,dcDelta:won?_gainDc:-_lossDc,tpDelta:won?_gainTp:-_lossTp};
+    finish=false;levelLoaded=false;page='RACE_RESULT';
+}
+function leaveRaceAll(){
+    leaveRaceQueueChannel();leaveRaceChallengeChannel();
+    if(raceChannel){raceChannel.unsubscribe();raceChannel=null;}
+    raceState='menu';raceOpponent=null;raceSessionId=null;raceResult=null;raceIncoming=null;
+    raceChallengeInput='';raceChallengeError='';raceStartAt=0;finish=false;levelLoaded=false;
+}
 function joinChatChannel(){
     if(chatChannel)return;
     chatChannel=db.channel('ice-drift-chat');
@@ -2011,7 +2205,7 @@ function subscribeToProfile(){
         .on('postgres_changes',{event:'UPDATE',schema:'public',table:'profiles',filter:'id=eq.'+currentUser.id},payload=>{
             const d=payload.new;
             if(typeof d.drift_coins==='number') driftCoins=d.drift_coins;
-            if(typeof d.total_talent_points==='number'){totalTalentPoints=d.total_talent_points;talentRecomputeEffects();}
+            if(typeof d.total_talent_points==='number'&&!_saveProfileTimer){totalTalentPoints=d.total_talent_points;talentRecomputeEffects();}
             if(d.muted_until!==undefined) mutedUntil=d.muted_until?new Date(d.muted_until).getTime():0;
         })
         .subscribe();
@@ -2128,7 +2322,7 @@ async function dbSignUp(username,password){
         if(ins.error){authLoading=false;authError='DB error: '+ins.error.message;return;}
         currentUser=data.user;currentUsername=username;
         authLoading=false;showPassword=false;
-        page='LEVELS';dbLoadRecords();joinChatChannel();subscribeToProfile();
+        page='LEVELS';dbLoadRecords();joinChatChannel();subscribeToProfile();joinRaceChallengeChannel();
     }catch(e){authLoading=false;authError='Error: '+e.message;}
 }
 async function dbSignIn(username,password){
@@ -2139,7 +2333,7 @@ async function dbSignIn(username,password){
         currentUser=data.user;
         await dbLoadProfile(data.user.id);
         authLoading=false;showPassword=false;
-        page='LEVELS';dbLoadRecords();joinChatChannel();subscribeToProfile();
+        page='LEVELS';dbLoadRecords();joinChatChannel();subscribeToProfile();joinRaceChallengeChannel();
     }catch(e){authLoading=false;authError='Error: '+e.message;}
 }
 
@@ -2150,7 +2344,7 @@ async function dbSignIn(username,password){
         currentUser=session.user;
         await dbLoadProfile(session.user.id);
         dbLoadRecords();
-        page='LEVELS';joinChatChannel();subscribeToProfile();
+        page='LEVELS';joinChatChannel();subscribeToProfile();joinRaceChallengeChannel();
     }
 })();
 
@@ -2248,7 +2442,7 @@ document.addEventListener('keydown',e=>{
         if(shiftPressLog.length>=40&&!antiCheatFlagged){antiCheatFlagged=true;page='CHEAT_DETECTED';}
     }}
     if(e.key==='Alt'){showHitboxes=true;}
-    if((e.key==='r'||e.key==='R')&&page==='GAME'){levelLoaded=false;}
+    if((e.key==='r'||e.key==='R')&&(page==='GAME')){levelLoaded=false;}
     if(e.key==='Enter'&&currentUser){setChatActive(true);}
 });
 document.addEventListener('keyup',e=>{
@@ -2256,14 +2450,22 @@ document.addEventListener('keyup',e=>{
     if(e.key==='Alt') showHitboxes=false;
 });
 document.addEventListener('wheel',e=>{
-    if(page==='LEADERBOARD') lbScroll=Math.max(0,lbScroll+Math.sign(e.deltaY)*40);
-    if(page==='UPDATES') upScroll=Math.max(0,upScroll+Math.sign(e.deltaY)*40);
-    if(page==='SHOP') shopScroll=Math.max(0,shopScroll+Math.sign(e.deltaY)*40);
-    if(page==='SETTINGS') settingsScroll=Math.max(0,settingsScroll+Math.sign(e.deltaY)*40);
-    if(currentUser&&chatActive){const d=Math.sign(e.deltaY)*36;chatHistoryScroll=Math.max(0,chatHistoryScroll+d);}
+    const _sd=e.deltaY*0.8;
+    if(page==='LEADERBOARD') lbScroll=Math.max(0,lbScroll+_sd);
+    if(page==='UPDATES') upScroll=Math.max(0,upScroll+_sd);
+    if(page==='SHOP') shopScroll=Math.max(0,shopScroll+_sd);
+    if(page==='SETTINGS') settingsScroll=Math.max(0,settingsScroll+_sd);
+    if(currentUser&&chatActive){chatHistoryScroll=Math.max(0,chatHistoryScroll+_sd);}
 },{passive:true});
 
 const UPDATE_LOG=[
+    {date:'JUNE 1ST 2026',lines:[
+        '- Added Multiplayer Racing. Race a random opponent and',
+        '  wager 10% of each other\'s DC and TP. Map is selected',
+        '  with a slot machine animation.',
+        '- Mobile boost button moved to the bottom left.',
+        '- Fixed talent saves being lost if you left the page too quickly.',
+    ]},
     {date:'MAY 31ST 2026',lines:[
         '- Added Level 5.',
         '- Added Checkpoint block. Touch it to set your respawn point.',
@@ -2839,11 +3041,13 @@ Promise.all([
             const hubLobbyX=Math.floor(SCREEN_WM-hubTotalW/2);
             const hubLevelX=hubLobbyX+hubBtnW+hubGap;
             const hubBtnY=Math.floor(SCREEN_HM-hubBtnH/2);
+            const hubRaceY=hubBtnY+hubBtnH+16;
             if(mjp&&inRect(mouseX,mouseY,hubLobbyX,hubBtnY,hubBtnW,hubBtnH)){
                 if(!currentUser){inputValues.username='';inputValues.password='';authError='';page='LOGIN';}
                 else page='LOBBY';
             }
             if(mjp&&inRect(mouseX,mouseY,hubLevelX,hubBtnY,hubBtnW,hubBtnH)) page='LEVEL_SELECT';
+            if(mjp&&inRect(mouseX,mouseY,hubLobbyX,hubRaceY,hubTotalW,hubBtnH)) page='RACE';
             const tb=getTalentBtn();
             if(mjp&&inRect(mouseX,mouseY,tb.bx,tb.by,tb.bw,tb.bh)) page='TALENTS';
             const shb=getShopBtn();
@@ -2865,8 +3069,14 @@ Promise.all([
             if(mjp&&inRect(mouseX,mouseY,dcBtnX,dcBtnY,LEVEL_BUTTON_SIZE,LEVEL_BUTTON_SIZE)) window.open('https://discord.gg/rjwWPjjMFJ','_blank');
             ctx.fillStyle='#000';ctx.fillRect(0,0,SCREEN_WIDTH,SCREEN_HEIGHT);
             menuBg.render(ctx,sheet);
-            renderTextButton(ctx,bwBtnSheet,textSheet,0,hubLobbyX,hubBtnY,hubBtnW,'LOBBY',0,0,0);
+            {const _htx=Math.floor(SCREEN_WM-TITLE_WIDTH/2),_hty=hubBtnY-TITLE_HEIGHT-30;
+            ctx.save();ctx.globalAlpha=80/255;ctx.filter='brightness(0)';
+            ctx.drawImage(titleImg,_htx-5,_hty+5,TITLE_WIDTH,TITLE_HEIGHT);
+            ctx.restore();
+            ctx.drawImage(titleImg,_htx,_hty,TITLE_WIDTH,TITLE_HEIGHT);}
+            renderTextButton(ctx,btnSheet,textSheet,0,hubLobbyX,hubBtnY,hubBtnW,'LOBBY',0,0,0);
             renderTextButton(ctx,btnSheet,textSheet,0,hubLevelX,hubBtnY,hubBtnW,'LEVELS',0,0,0);
+            renderTextButton(ctx,btnSheet,textSheet,0,hubLobbyX,hubRaceY,hubTotalW,'MULTIPLAYER RACING',0,0,0);
             // Talents button
             renderButton(ctx,btnSheet,textSheet,3,tb.bx,tb.by,tb.bw,tb.bh,'');
             if(inRect(mouseX,mouseY,tb.bx,tb.by,tb.bw,tb.bh)){
@@ -2958,6 +3168,24 @@ Promise.all([
                 renderText(ctx,textSheet,label,ttX+padX,ttY+padY,1,255,255,255);
             }
             renderDriftCoins(ctx,textSheet,iconsImg);
+            // Incoming race challenge overlay (visible from any page)
+            if(raceIncoming&&currentUser){
+                ctx.save();ctx.globalAlpha=0.88;ctx.fillStyle='rgb(20,20,40)';
+                ctx.beginPath();ctx.roundRect(SCREEN_WM-230,SCREEN_HM-110,460,210,14);ctx.fill();ctx.restore();
+                ctx.save();ctx.strokeStyle='rgb(130,160,255)';ctx.lineWidth=2;
+                ctx.beginPath();ctx.roundRect(SCREEN_WM-230,SCREEN_HM-110,460,210,14);ctx.stroke();ctx.restore();
+                {const chl='RACE CHALLENGE FROM',chlW=chl.length*(4*3+3);
+                renderText(ctx,textSheet,chl,Math.floor(SCREEN_WM-chlW/2),SCREEN_HM-98,1,200,200,220);}
+                {const fn=(raceIncoming.fromUsername||'?').toUpperCase(),fnW=fn.length*(4*3*2+3);
+                renderText(ctx,textSheet,fn,Math.floor(SCREEN_WM-fnW/2),SCREEN_HM-68,2,255,220,80);}
+                const accW=160,decW=160,accX=SCREEN_WM-accW-10,decX=SCREEN_WM+10,notifBtnY=SCREEN_HM+18;
+                renderTextButton(ctx,btnSheet,textSheet,0,accX,notifBtnY,accW,'ACCEPT',0,180,80);
+                renderTextButton(ctx,btnSheet,textSheet,0,decX,notifBtnY,decW,'DECLINE',180,0,0);
+                if(mjp){
+                    if(inRect(mouseX,mouseY,accX,notifBtnY,accW,80)){page='RACE';acceptRaceChallenge();}
+                    if(inRect(mouseX,mouseY,decX,notifBtnY,decW,80))declineRaceChallenge();
+                }
+            }
 
         } else if(page==='LEVEL_SELECT'){
             menuBg.update(dt);
@@ -3261,7 +3489,7 @@ Promise.all([
                 tabCurX+=tw+tabGap;
             }}
 
-            {const contentTop=210,rowH=110,rowGap=Math.max(rowH,Math.floor((SCREEN_HEIGHT-260)/5));
+            {const contentTop=210,rowH=110,rowGap=rowH+16;
             ctx.save();ctx.rect(0,contentTop,SCREEN_WIDTH,SCREEN_HEIGHT-contentTop);ctx.clip();
             if(settingsTab===0){
                 if(currentUsername){
@@ -3296,7 +3524,7 @@ Promise.all([
                         if(inRect(mouseX,mouseY,cpX,cpY,cpW,cpH)){authError='';inputValues.password='';setActiveInput(null);page='CHANGE_PASSWORD';}
                         if(inRect(mouseX,mouseY,loX,loY,loW,loH)){
                             db.auth.signOut();
-                            leaveChatChannel();leaveLobbyChannel();unsubscribeFromProfile();
+                            leaveChatChannel();leaveLobbyChannel();leaveRaceChallengeChannel();unsubscribeFromProfile();
                             currentUser=null;currentUsername='';driftCoins=0;totalTalentPoints=0;spentTalentPoints=0;
                             talentPurchased=new Array(TALENT_COUNT).fill(false);talentRecomputeEffects();
                             inputValues.username='';inputValues.password='';deleteConfirm=false;setChatActive(false);page='MENU';
@@ -3324,6 +3552,150 @@ Promise.all([
             {const bb=getBackBtn();renderButton(ctx,btnSheet,textSheet,4,bb.bx,bb.by,bb.bw,bb.bh,'');}
             if(mjp){const bb=getBackBtn();if(inRect(mouseX,mouseY,bb.bx,bb.by,bb.bw,bb.bh)){deleteConfirm=false;settingsScroll=0;page='LEVELS';}}
 
+
+        } else if(page==='RACE'){
+            ctx.fillStyle='#d0d0d0';ctx.fillRect(0,0,SCREEN_WIDTH,SCREEN_HEIGHT);
+            {const ttl='MULTIPLAYER RACING',ttlW=ttl.length*(4*3*2+3);
+            renderText(ctx,textSheet,ttl,Math.floor(SCREEN_WM-ttlW/2),50,2,0,0,0);}
+
+            if(raceState==='menu'){
+                if(currentUser){
+                    const btnW=610,btnY=Math.floor(SCREEN_HM-50);
+                    const bX=Math.floor(SCREEN_WM-btnW/2);
+                    renderTextButton(ctx,btnSheet,textSheet,0,bX,btnY,btnW,'FIND RANDOM OPPONENT',0,0,0);
+                    {const d1='WIN OR LOSE 10% OF EACH OTHER\'S DC + TP',d1W=d1.length*(4*3+3);
+                    renderText(ctx,textSheet,d1,Math.floor(SCREEN_WM-d1W/2),btnY+92,1,60,60,80);}
+                    if(mjp&&inRect(mouseX,mouseY,bX,btnY,btnW,80)){raceMode='random';raceState='queue';joinRaceQueueChannel();}
+                } else {
+                    const nl='LOGIN TO RACE',nlW=nl.length*(4*3*2+3);
+                    renderText(ctx,textSheet,nl,Math.floor(SCREEN_WM-nlW/2),Math.floor(SCREEN_HM-21),2,120,120,130);
+                }
+            } else if(raceState==='queue'){
+                const st='SEARCHING FOR OPPONENT...',stW=st.length*(4*3+3);
+                renderText(ctx,textSheet,st,Math.floor(SCREEN_WM-stW/2),Math.floor(SCREEN_HM-60),1,0,0,0);
+                const canW=200,canY=Math.floor(SCREEN_HM+10),canX=Math.floor(SCREEN_WM-canW/2);
+                renderTextButton(ctx,btnSheet,textSheet,0,canX,canY,canW,'CANCEL',0,0,0);
+                if(mjp&&inRect(mouseX,mouseY,canX,canY,canW,80)){leaveRaceQueueChannel();raceState='menu';}
+            } else if(raceState==='challenge_send'){
+                raceChallengeInput=inputValues.username;
+                const fW=400,fH=54,fX=Math.floor(SCREEN_WM-fW/2),fY=Math.floor(SCREEN_HM-80);
+                ctx.save();ctx.globalAlpha=80/255;ctx.fillStyle='black';
+                ctx.beginPath();ctx.roundRect(fX-4,fY+4,fW,fH,6);ctx.fill();ctx.restore();
+                ctx.save();ctx.fillStyle=activeInput==='username'?'rgb(50,55,80)':'rgb(32,32,48)';
+                ctx.strokeStyle=activeInput==='username'?'rgb(130,160,255)':'rgb(70,70,100)';
+                ctx.lineWidth=2;
+                ctx.beginPath();ctx.roundRect(fX,fY,fW,fH,6);ctx.fill();
+                ctx.beginPath();ctx.roundRect(fX,fY,fW,fH,6);ctx.stroke();
+                ctx.restore();
+                const lbl='OPPONENT USERNAME',lblW=lbl.length*(4*3+3);
+                renderText(ctx,textSheet,lbl,fX,fY-28,1,0,0,0);
+                if(inputValues.username) renderText(ctx,textSheet,inputValues.username.toUpperCase(),fX+12,fY+fH/2-10,1,220,220,240);
+                if(activeInput==='username'&&Math.floor(performance.now()/530)%2===0){
+                    const clampedCaret=Math.min(caretPos,inputValues.username.length);
+                    const cx=fX+12+getCaretXOffset(inputValues.username,clampedCaret,1);
+                    ctx.fillStyle='rgb(180,200,255)';ctx.fillRect(cx,fY+fH/2-11,2,7*3);
+                }
+                const sendW=160,sendY=fY+fH+20,sendX=Math.floor(SCREEN_WM-sendW/2);
+                renderTextButton(ctx,btnSheet,textSheet,0,sendX,sendY,sendW,'SEND',0,0,0);
+                if(raceChallengeError){const errW=raceChallengeError.length*(4*3+3);renderText(ctx,textSheet,raceChallengeError,Math.floor(SCREEN_WM-errW/2),sendY+100,1,255,80,80);}
+                if(mjp){
+                    if(inRect(mouseX,mouseY,fX,fY,fW,fH)){setActiveInput('username');}
+                    if(inRect(mouseX,mouseY,sendX,sendY,sendW,80)){raceChallengeInput=inputValues.username;sendRaceChallenge();}
+                }
+            } else if(raceState==='challenge_wait'){
+                const oName=(inputValues.username||raceChallengeInput||'PLAYER').toUpperCase();
+                const st='WAITING FOR '+oName+' TO ACCEPT...',stW=st.length*(4*3+3);
+                renderText(ctx,textSheet,st,Math.floor(SCREEN_WM-stW/2),Math.floor(SCREEN_HM-60),1,0,0,0);
+                const canW=200,canY=Math.floor(SCREEN_HM+10),canX=Math.floor(SCREEN_WM-canW/2);
+                renderTextButton(ctx,btnSheet,textSheet,0,canX,canY,canW,'CANCEL',0,0,0);
+                if(mjp&&inRect(mouseX,mouseY,canX,canY,canW,80)){raceState='challenge_send';raceSessionId=null;raceChallengeError='';}
+            } else if(raceState==='ready'){
+                const st='OPPONENT FOUND! WAITING...',stW=st.length*(4*3+3);
+                renderText(ctx,textSheet,st,Math.floor(SCREEN_WM-stW/2),Math.floor(SCREEN_HM-21),1,0,0,0);
+            } else if(raceState==='map_anim'){
+                const _maNow=performance.now();
+                const _dur=2800;
+                const _t=Math.min(1,(_maNow-raceMapAnimStart)/_dur);
+                const mapNames=['MAP 1','MAP 2','MAP 3','MAP 4','MAP 5'];
+                const _ease=1-Math.pow(1-_t,3);
+                const _scrollPos=(raceMap-7)+7*_ease;
+                const _cardW=500,BTN_H=80,_gap=20,_step=BTN_H+_gap;
+                const _drawBtnBg=(sh,srcY,dx,dy,bW)=>{
+                    const CAP_SW=2,MID_SW=36,SC=5,SRC_H=16,CAP_W=CAP_SW*SC,MID_TW=MID_SW*SC;
+                    const midW=bW-CAP_W*2;
+                    ctx.drawImage(sh,0,srcY,CAP_SW,SRC_H,dx,dy,CAP_W,BTN_H);
+                    let drawn=0;
+                    while(drawn<midW){const dw=Math.min(MID_TW,midW-drawn);ctx.drawImage(sh,CAP_SW,srcY,Math.ceil(dw/SC),SRC_H,dx+CAP_W+drawn,dy,dw,BTN_H);drawn+=dw;}
+                    ctx.drawImage(sh,CAP_SW+MID_SW,srcY,CAP_SW,SRC_H,dx+bW-CAP_W,dy,CAP_W,BTN_H);
+                };
+                ctx.save();ctx.globalAlpha=0.78;ctx.fillStyle='rgb(5,8,22)';ctx.fillRect(0,0,SCREEN_WIDTH,SCREEN_HEIGHT);ctx.restore();
+                ctx.save();ctx.beginPath();ctx.rect(0,SCREEN_HM-_step*2-10,SCREEN_WIDTH,_step*4+20);ctx.clip();
+                for(let _ci=-4;_ci<=4;_ci++){
+                    const _idx=((Math.round(_scrollPos)+_ci)%5+5)%5;
+                    const _offY=(_ci+(Math.round(_scrollPos)-_scrollPos))*_step;
+                    const _cy=SCREEN_HM+_offY;
+                    const _dist=Math.abs(_offY/_step);
+                    const _isFinal=_t>0.82&&_idx===raceMap&&_dist<0.5;
+                    const _alpha=Math.max(0,0.9-_dist*0.38)*(_dist<0.01?1:0.75);
+                    const _scl=Math.max(0.55,1-_dist*0.22)*(_isFinal?1+(_t-0.82)/0.18*0.15:1);
+                    const _bW=Math.floor(_cardW*_scl);
+                    const _bX=Math.floor(SCREEN_WM-_bW/2);
+                    const _bY=Math.floor(_cy-BTN_H/2);
+                    const _sh=_isFinal?btnSheet:bwBtnSheet;
+                    ctx.save();ctx.globalAlpha=_alpha*(80/255);ctx.filter='brightness(0)';ctx.imageSmoothingEnabled=false;
+                    _drawBtnBg(_sh,0,_bX-5,_bY+5,_bW);
+                    ctx.restore();
+                    ctx.save();ctx.globalAlpha=_alpha;ctx.imageSmoothingEnabled=false;
+                    _drawBtnBg(_sh,0,_bX,_bY,_bW);
+                    ctx.restore();
+                    if(_isFinal){ctx.save();ctx.globalAlpha=0.18;ctx.fillStyle='white';ctx.fillRect(_bX,_bY,_bW,BTN_H);ctx.restore();}
+                    const _mn=mapNames[_idx],_mnW=_mn.length*(4*3*2+3);
+                    ctx.save();ctx.globalAlpha=_alpha;
+                    renderText(ctx,textSheet,_mn,Math.floor(SCREEN_WM-_mnW/2),_bY+BTN_H/2-14,2,0,0,0);
+                    ctx.restore();
+                }
+                ctx.restore();
+                if(_t>0.82){
+                    const _rv=Math.min(1,(_t-0.82)/0.18);
+                    const _grd=ctx.createRadialGradient(SCREEN_WM,SCREEN_HM,20,SCREEN_WM,SCREEN_HM,380);
+                    _grd.addColorStop(0,`rgba(255,255,255,${(0.15*_rv).toFixed(2)})`);
+                    _grd.addColorStop(1,'rgba(255,255,255,0)');
+                    ctx.save();ctx.fillStyle=_grd;ctx.fillRect(0,0,SCREEN_WIDTH,SCREEN_HEIGHT);ctx.restore();
+                }
+                {const lbl='COMPETING ON',lW=lbl.length*(4*3+3);
+                ctx.save();ctx.globalAlpha=0.65;
+                renderText(ctx,textSheet,lbl,Math.floor(SCREEN_WM-lW/2),SCREEN_HM-_step*2-38,1,180,185,210);
+                ctx.restore();}
+                if(raceOpponent){
+                    const vs='VS '+(raceOpponent.username||'OPPONENT').toUpperCase(),vsW=vs.length*(4*3+3);
+                    ctx.save();ctx.globalAlpha=0.85;
+                    renderText(ctx,textSheet,vs,Math.floor(SCREEN_WM-vsW/2),SCREEN_HM+_step*2+24,1,255,215,60);
+                    ctx.restore();
+                }
+                if(_t>=1){raceState='racing';page='RACE_GAME';}
+            }
+
+            // Incoming challenge notification overlay
+            if(raceIncoming){
+                ctx.save();ctx.globalAlpha=0.85;ctx.fillStyle='rgb(20,20,40)';
+                ctx.beginPath();ctx.roundRect(SCREEN_WM-220,SCREEN_HM-100,440,200,12);ctx.fill();ctx.restore();
+                ctx.save();ctx.strokeStyle='rgb(130,160,255)';ctx.lineWidth=2;
+                ctx.beginPath();ctx.roundRect(SCREEN_WM-220,SCREEN_HM-100,440,200,12);ctx.stroke();ctx.restore();
+                const chl='RACE CHALLENGE FROM',chlW=chl.length*(4*3+3);
+                renderText(ctx,textSheet,chl,Math.floor(SCREEN_WM-chlW/2),SCREEN_HM-90,1,255,255,255);
+                const fn=(raceIncoming.fromUsername||'?').toUpperCase(),fnW=fn.length*(4*3*2+3);
+                renderText(ctx,textSheet,fn,Math.floor(SCREEN_WM-fnW/2),SCREEN_HM-60,2,255,220,80);
+                const accW=160,decW=160,accX=SCREEN_WM-accW-10,decX=SCREEN_WM+10,notifBtnY=SCREEN_HM+20;
+                renderTextButton(ctx,btnSheet,textSheet,0,accX,notifBtnY,accW,'ACCEPT',0,180,80);
+                renderTextButton(ctx,btnSheet,textSheet,0,decX,notifBtnY,decW,'DECLINE',180,0,0);
+                if(mjp){
+                    if(inRect(mouseX,mouseY,accX,notifBtnY,accW,80))acceptRaceChallenge();
+                    if(inRect(mouseX,mouseY,decX,notifBtnY,decW,80))declineRaceChallenge();
+                }
+            }
+
+            {const bb=getBackBtn();renderButton(ctx,btnSheet,textSheet,4,bb.bx,bb.by,bb.bw,bb.bh,'');}
+            if(mjp){const bb=getBackBtn();if(inRect(mouseX,mouseY,bb.bx,bb.by,bb.bw,bb.bh)){leaveRaceAll();page='LEVELS';}}
 
         } else if(page==='CHANGE_USERNAME'){
             ctx.fillStyle='#d0d0d0';ctx.fillRect(0,0,SCREEN_WIDTH,SCREEN_HEIGHT);
@@ -3398,7 +3770,7 @@ Promise.all([
             if(mjp){const bb=getBackBtn();if(inRect(mouseX,mouseY,bb.bx,bb.by,bb.bw,bb.bh)){setActiveInput(null);authError='';inputValues.username='';inputValues.password='';inputValues.confirmPw='';cpShowPw=[false,false,false];page='SETTINGS';}}
             if(authError){const errW=authError.length*(4*3+3);renderText(ctx,textSheet,authError,Math.floor(SCREEN_WM-errW/2),cpSubY+100,1,255,80,80);}
 
-        } else if(page==='GAME'){
+        } else if(page==='GAME'||page==='RACE_GAME'){
             if(!levelLoaded){
                 loadLevel();
                 bg.setType(LEVEL_BACKGROUND[currentLevel]);
@@ -3409,7 +3781,12 @@ Promise.all([
                     for(let j=0;j<TILE_GRID_WIDTH;j++)
                         tiles[i][j].update(player.xPos,player.yPos);
                 startWallDeactivated=false;
-                gameStartTime=performance.now();
+                if(page==='RACE_GAME'&&raceStartAt){
+                    // sync gameStartTime so countdown ends exactly at raceStartAt (wall clock)
+                    gameStartTime=performance.now()+(raceStartAt-Date.now())-3000;
+                } else {
+                    gameStartTime=performance.now();
+                }
                 finish=false;
                 boostOverriding=false;particles=[];iceParticleAccum=0;prevIceVelX=0;prevIceVelY=0;prevIceVelX=0;prevIceVelY=0;countdownGoEnd=0;
                 levelLoaded=true;
@@ -3425,7 +3802,10 @@ Promise.all([
             }
 
             const gameBb=getBackBtn();
-            if(mjp&&inRect(mouseX,mouseY,gameBb.bx,gameBb.by,gameBb.bw,gameBb.bh)) page='LEVEL_SELECT';
+            if(mjp&&inRect(mouseX,mouseY,gameBb.bx,gameBb.by,gameBb.bw,gameBb.bh)){
+                if(page==='RACE_GAME'){raceChannel?.send({type:'broadcast',event:'forfeit',payload:{uid:currentUser?.id}});applyRaceResult(false);}
+                else page='LEVEL_SELECT';
+            }
 
             const prevPX=player.xPos+SCREEN_WM,prevPY=player.yPos+SCREEN_HM;
             player.update(mouseX,mouseY,tiles,dt,sjp,rmp);
@@ -3531,6 +3911,42 @@ Promise.all([
                     const _fSpd=2.5+Math.random()*3;
                     if(Math.random()<0.3){particles.push({wx:_bwx+(Math.random()-0.5)*8,wy:_bwy+(Math.random()-0.5)*8,vx:(-_ds+(Math.random()-0.5)*0.5)*_fSpd,vy:(_dc+(Math.random()-0.5)*0.5)*_fSpd,born:_devNow,life:300+Math.random()*200,size:5+Math.random()*5,smoke:true});}
                     else{particles.push({wx:_bwx+(Math.random()-0.5)*6,wy:_bwy+(Math.random()-0.5)*6,vx:(-_ds+(Math.random()-0.5)*0.5)*_fSpd,vy:(_dc+(Math.random()-0.5)*0.5)*_fSpd,born:_devNow,life:100+Math.random()*120,size:3+Math.random()*4});}
+                }
+            }
+            // Race opponent particles (ice drift + dev car)
+            if(page==='RACE_GAME'&&raceOpponent){
+                const _rPnow=performance.now();
+                if(raceOppDrift&&raceOppDrift.spd>0.3){
+                    raceOppIceAccum+=dt*raceOppDrift.factor*raceOppDrift.spd*1.4;
+                    while(raceOppIceAccum>=1){
+                        raceOppIceAccum--;
+                        const bx=-raceOppDrift.vx,by=-raceOppDrift.vy;
+                        const rX=bx*(CAR_HEIGHT*0.5),rY=by*(CAR_HEIGHT*0.5);
+                        const a=(Math.random()-0.5)*Math.PI*0.7;
+                        const ca=Math.cos(a),sa=Math.sin(a);
+                        const dx=bx*ca-by*sa,dy=bx*sa+by*ca;
+                        particles.push({wx:raceOppX+rX+(Math.random()-0.5)*8,wy:raceOppY+rY+(Math.random()-0.5)*8,
+                            vx:dx*(2+Math.random()*raceOppDrift.spd*0.45),vy:dy*(2+Math.random()*raceOppDrift.spd*0.45),
+                            born:_rPnow,life:300+Math.random()*350,size:4+Math.random()*6,ice:true,rot:Math.random()*Math.PI*2,bright:Math.random()});
+                    }
+                } else {raceOppIceAccum=0;}
+                if(SKINS[raceOpponent.skin]?.exclusive&&(raceOpponent.username||'').toLowerCase()==='nachofrenchfry'&&_rPnow-raceOppDevPfx>25){
+                    raceOppDevPfx=_rPnow;
+                    const _oda=(raceOppDir*Math.PI/180),_odc=Math.cos(_oda),_ods=Math.sin(_oda);
+                    const _ocx=raceOppX,_ocy=raceOppY-10;
+                    for(const[_cx,_cy]of[[-37.5,-42],[37.5,-42],[-37.5,42],[37.5,42]]){
+                        const _cpx=_ocx+_cx*_odc-_cy*_ods,_cpy=_ocy+_cx*_ods+_cy*_odc;
+                        for(let _k=0;_k<2;_k++){
+                            const _ca=Math.random()*Math.PI*2,_cs=1.5+Math.random()*3.5;
+                            particles.push({wx:_cpx+(Math.random()-0.5)*5,wy:_cpy+(Math.random()-0.5)*5,vx:Math.cos(_ca)*_cs,vy:Math.sin(_ca)*_cs,born:_rPnow,life:300+Math.random()*300,size:4+Math.random()*7,finish:true,r:80,g:Math.floor(190+Math.random()*55),b:255,rot:Math.random()*Math.PI*2});
+                        }
+                    }
+                    const _obwx=_ocx-42*_ods,_obwy=_ocy+42*_odc;
+                    for(let _fi=0;_fi<3;_fi++){
+                        const _fSpd=2.5+Math.random()*3;
+                        if(Math.random()<0.3){particles.push({wx:_obwx+(Math.random()-0.5)*8,wy:_obwy+(Math.random()-0.5)*8,vx:(-_ods+(Math.random()-0.5)*0.5)*_fSpd,vy:(_odc+(Math.random()-0.5)*0.5)*_fSpd,born:_rPnow,life:300+Math.random()*200,size:5+Math.random()*5,smoke:true});}
+                        else{particles.push({wx:_obwx+(Math.random()-0.5)*6,wy:_obwy+(Math.random()-0.5)*6,vx:(-_ods+(Math.random()-0.5)*0.5)*_fSpd,vy:(_odc+(Math.random()-0.5)*0.5)*_fSpd,born:_rPnow,life:100+Math.random()*120,size:3+Math.random()*4});}
+                    }
                 }
             }
             for(let i=0;i<TILE_GRID_HEIGHT;i++)
@@ -3654,6 +4070,44 @@ Promise.all([
                 ctx.fillStyle=_sgrd;ctx.fillRect(SCREEN_WM-155,SCREEN_HM-165,310,330);
                 ctx.restore();
             }
+            // Race opponent car + ghost trail (inside world-space transform)
+            if(page==='RACE_GAME'&&raceOpponent){
+                const _rSk=SKINS[Math.min(raceOpponent.skin||0,SKINS.length-1)];
+                const _rOpW=_rSk.sw*SKIN_SCALE,_rOpH=CAR_HEIGHT,_rPivY=10;
+                const _rOppSx=raceOppX-player.xPos;
+                const _rOppSy=raceOppY-player.yPos;
+                const _rDir=raceOppDir*Math.PI/180;
+                const _rNow2=performance.now();
+                const _rSpdFade=Math.max(0,Math.min(1,(raceOppSpd-18)/8));
+                // Ghost trail
+                for(const g of raceOppGhostTrail){
+                    if((g.wx-raceOppX)*(g.wx-raceOppX)+(g.wy-raceOppY)*(g.wy-raceOppY)<28*28)continue;
+                    const _gtt=(_rNow2-g.born)/g.life;if(_gtt>=1)continue;
+                    const _gfi=Math.min(1,(_rNow2-g.born)/100);
+                    ctx.save();ctx.globalAlpha=Math.max(0,_gfi*(1-_gtt)*0.5*_rSpdFade);
+                    ctx.imageSmoothingEnabled=false;
+                    ctx.translate(g.wx-player.xPos,g.wy-player.yPos-_rPivY);ctx.rotate(g.dir*Math.PI/180);
+                    ctx.drawImage(carImg,_rSk.sx,0,_rSk.sw,SKIN_H,-_rOpW/2,-_rOpH/2,_rOpW,_rOpH);
+                    ctx.restore();
+                }
+                // Shadow
+                ctx.save();ctx.globalAlpha=50/255;ctx.filter='brightness(0)';ctx.imageSmoothingEnabled=false;
+                ctx.translate(_rOppSx-5,_rOppSy+5-_rPivY);ctx.rotate(_rDir);
+                ctx.drawImage(carImg,_rSk.sx,0,_rSk.sw,SKIN_H,-_rOpW/2,-_rOpH/2,_rOpW,_rOpH);
+                ctx.restore();
+                // Car
+                ctx.save();ctx.imageSmoothingEnabled=false;
+                ctx.translate(_rOppSx,_rOppSy-_rPivY);ctx.rotate(_rDir);
+                ctx.drawImage(carImg,_rSk.sx,0,_rSk.sw,SKIN_H,-_rOpW/2,-_rOpH/2,_rOpW,_rOpH);
+                ctx.restore();
+                // Name label
+                {const nm=(raceOpponent.username||'OPPONENT').toUpperCase();
+                const nw=nm.length*(4*3+3),padX=8,padY=5;
+                const lx=Math.floor(_rOppSx-nw/2-padX),ly=Math.floor(_rOppSy-_rOpH/2-_rPivY-7*3-padY*2-6);
+                ctx.save();ctx.globalAlpha=0.8;ctx.fillStyle='rgb(0,0,0)';
+                ctx.beginPath();ctx.roundRect(lx,ly,nw+padX*2,7*3+padY*2,4);ctx.fill();ctx.restore();
+                renderText(ctx,textSheet,nm,lx+padX,ly+padY,1,255,255,255);}
+            }
             player.render(ctx,carImg,showHitboxes);
             ctx.restore();
 
@@ -3756,7 +4210,43 @@ Promise.all([
                 }
             }
 
-            if(finish){
+            // Race: broadcast position + HUD
+            if(page==='RACE_GAME'){
+                const _rnow=performance.now();
+                if(currentUser&&_rnow-raceLastBroadcast>50){
+                    raceLastBroadcast=_rnow;
+                    {const _rv=Math.hypot(player.xVel,player.yVel);
+                    const _rda=player.drawDir*Math.PI/180;
+                    const _rCross=_rv>0.3?Math.abs(player.xVel*Math.sin(_rda)-player.yVel*Math.cos(_rda))/_rv:0;
+                    const _rDrift=(_rCross>0.08&&_rv>0.3)?{factor:Math.min(1,_rCross),spd:_rv,vx:player.xVel/_rv,vy:player.yVel/_rv}:null;
+                    raceChannel?.send({type:'broadcast',event:'pos',payload:{uid:currentUser.id,x:player.xPos+SCREEN_WM,y:player.yPos+SCREEN_HM,dir:player.drawDir,spd:_rv*60,drift:_rDrift}});}
+                }
+                // Race HUD overlay
+                if(raceOppFin&&!raceLocalFin){
+                    const hw='OPPONENT FINISHED: '+raceOppFinTime.toFixed(2)+'S - KEEP RACING OR FORFEIT',hwW=hw.length*(4*3+3);
+                    ctx.save();ctx.globalAlpha=0.82;ctx.fillStyle='rgb(20,20,40)';
+                    ctx.fillRect(Math.floor(SCREEN_WM-hwW/2-10),8,hwW+20,7*3+14);
+                    ctx.restore();
+                    renderText(ctx,textSheet,hw,Math.floor(SCREEN_WM-hwW/2),15,1,255,220,80);
+                } else if(raceOppFin){
+                    const hw='OPPONENT FINISHED: '+raceOppFinTime.toFixed(2)+'S',hwW=hw.length*(4*3+3);
+                    ctx.save();ctx.globalAlpha=0.82;ctx.fillStyle='rgb(20,20,40)';
+                    ctx.fillRect(Math.floor(SCREEN_WM-hwW/2-10),8,hwW+20,7*3+14);
+                    ctx.restore();
+                    renderText(ctx,textSheet,hw,Math.floor(SCREEN_WM-hwW/2),15,1,255,220,80);
+                }
+                // Forfeit button top-right (shift left of minimap if tactical sight active)
+                {const fftW=240,fftY=10;
+                const _mmSz=tacticalSightUnlocked?(150+(tacticalSightLevel-1)*15+16):0;
+                const fftX=SCREEN_WIDTH-_mmSz-fftW-20;
+                renderTextButton(ctx,btnSheet,textSheet,0,fftX,fftY,fftW,'FORFEIT',180,0,0);
+                if(mjp&&inRect(mouseX,mouseY,fftX,fftY,fftW,80)){
+                    raceChannel?.send({type:'broadcast',event:'forfeit',payload:{uid:currentUser?.id}});
+                    applyRaceResult(false);
+                }}
+            }
+
+            if(finish&&page!=='RACE_GAME'){
                 const text='YOU FINISHED IN '+finishTime.toFixed(2)+' SECONDS!';
                 const size=2,charW=4,charH=7;
                 const tw=text.length*(charW*3*size+3);
@@ -4294,6 +4784,33 @@ Promise.all([
             renderText(ctx,textSheet,lbl,Math.floor(SCREEN_WM-lw/2),10,2,255,255,255);
             ctx.restore();}
             renderButton(ctx,btnSheet,textSheet,4,lobbyBb.bx,lobbyBb.by,lobbyBb.bw,lobbyBb.bh,'');
+        } else if(page==='RACE_RESULT'){
+            ctx.fillStyle='#d0d0d0';ctx.fillRect(0,0,SCREEN_WIDTH,SCREEN_HEIGHT);
+            const won=raceResult?.won;
+            const outcome=won?'YOU WIN!':'YOU LOSE';
+            const outR=won?0:200,outG=won?160:0,outB=0;
+            {const ow=outcome.length*(4*3*2+3);
+            renderText(ctx,textSheet,outcome,Math.floor(SCREEN_WM-ow/2),SCREEN_HM-160,2,outR,outG,outB);}
+            if(raceOpponent){
+                const oppLbl='VS '+((raceOpponent.username||'OPPONENT').toUpperCase()),oppW=oppLbl.length*(4*3+3);
+                renderText(ctx,textSheet,oppLbl,Math.floor(SCREEN_WM-oppW/2),SCREEN_HM-90,1,60,60,80);
+            }
+            if(raceMode==='random'&&raceResult){
+                const dcDelta=raceResult.dcDelta,tpDelta=raceResult.tpDelta;
+                const dcSign=dcDelta>=0?'+':'',tpSign=tpDelta>=0?'+':'';
+                const dcStr=dcSign+dcDelta+' DC',tpStr=tpSign+tpDelta+' TP';
+                const dcR=dcDelta>=0?0:200,dcG=dcDelta>=0?150:0,dcB=0;
+                const tpR=tpDelta>=0?0:200,tpG=tpDelta>=0?150:0,tpB=tpDelta>=0?200:0;
+                const dcW=dcStr.length*(4*3*2+3),tpW=tpStr.length*(4*3*2+3);
+                renderText(ctx,textSheet,dcStr,Math.floor(SCREEN_WM-dcW/2),SCREEN_HM-20,2,dcR,dcG,dcB);
+                renderText(ctx,textSheet,tpStr,Math.floor(SCREEN_WM-tpW/2),SCREEN_HM+40,2,tpR,tpG,tpB);
+            } else if(raceMode==='challenge'){
+                const friendMsg='NO COINS WAGERED IN FRIEND CHALLENGE',fmW=friendMsg.length*(4*3+3);
+                renderText(ctx,textSheet,friendMsg,Math.floor(SCREEN_WM-fmW/2),SCREEN_HM-10,1,80,80,100);
+            }
+            const backW=200,backY=SCREEN_HM+140,backX=Math.floor(SCREEN_WM-backW/2);
+            renderTextButton(ctx,btnSheet,textSheet,0,backX,backY,backW,'BACK',0,0,0);
+            if(mjp&&inRect(mouseX,mouseY,backX,backY,backW,80)){leaveRaceAll();page='RACE';}
         }
 
         // ── Cheat detected screen ──
@@ -4442,7 +4959,7 @@ Promise.all([
             }
         }
 
-        {const _chatOver=(page==='GAME'||page==='LOBBY')&&currentUser&&mouseX>=145&&mouseX<=SCREEN_WIDTH-10&&mouseY>=SCREEN_HEIGHT-90&&mouseY<=SCREEN_HEIGHT-20;
+        {const _chatOver=(page==='GAME'||page==='LOBBY'||page==='RACE_GAME')&&currentUser&&mouseX>=145&&mouseX<=SCREEN_WIDTH-10&&mouseY>=SCREEN_HEIGHT-90&&mouseY<=SCREEN_HEIGHT-20;
         const nc=(_wantText||_chatOver)?'text':'default';
         if(nc!==_prevCursor){canvas.style.cursor=nc;_prevCursor=nc;}}
         requestAnimationFrame(loop);
