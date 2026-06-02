@@ -1900,7 +1900,7 @@ async function dbLoadProfile(uid){
     if(!data)return;
     currentUsername=data.username||'';
     driftCoins=data.drift_coins||0;
-    totalTalentPoints=data.total_talent_points||0;
+    totalTalentPoints=Math.max(0,data.total_talent_points||0);
     spentTalentPoints=data.spent_talent_points||0;
     if(Array.isArray(data.talents_purchased)&&data.talents_purchased.length>0){
         const stored=data.talents_purchased.slice(0,TALENT_COUNT);
@@ -1932,6 +1932,7 @@ async function _dbSaveProfileNow(){
     if(!currentUser)return;
     const _snap={
         drift_coins:driftCoins,
+        total_talent_points:Math.max(0,totalTalentPoints),
         spent_talent_points:spentTalentPoints,
         talents_purchased:[...talentPurchased],
         selected_skin:selectedSkin,
@@ -2205,7 +2206,7 @@ function subscribeToProfile(){
         .on('postgres_changes',{event:'UPDATE',schema:'public',table:'profiles',filter:'id=eq.'+currentUser.id},payload=>{
             const d=payload.new;
             if(typeof d.drift_coins==='number') driftCoins=d.drift_coins;
-            if(typeof d.total_talent_points==='number'&&!_saveProfileTimer){totalTalentPoints=d.total_talent_points;talentRecomputeEffects();}
+            if(typeof d.total_talent_points==='number'&&!_saveProfileTimer){totalTalentPoints=Math.max(0,d.total_talent_points);talentRecomputeEffects();}
             if(d.muted_until!==undefined) mutedUntil=d.muted_until?new Date(d.muted_until).getTime():0;
         })
         .subscribe();
@@ -3782,8 +3783,10 @@ Promise.all([
                         tiles[i][j].update(player.xPos,player.yPos);
                 startWallDeactivated=false;
                 if(page==='RACE_GAME'&&raceStartAt){
-                    // sync gameStartTime so countdown ends exactly at raceStartAt (wall clock)
-                    gameStartTime=performance.now()+(raceStartAt-Date.now())-3000;
+                    // Wall-clock sync, clamped so gameStartTime is never in the future
+                    // (clock skew between devices could make the offset huge and freeze the "3")
+                    const _rOff=Math.min(0,(raceStartAt-Date.now())-3000);
+                    gameStartTime=performance.now()+_rOff;
                 } else {
                     gameStartTime=performance.now();
                 }
