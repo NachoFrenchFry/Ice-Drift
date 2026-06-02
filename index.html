@@ -2173,7 +2173,7 @@ function applyRaceResult(won){
     const _lossDc=isRandom?Math.ceil(raceMyDcAtStart*0.1):0;
     const _lossTp=isRandom?Math.ceil(raceMyTpAtStart*0.1):0;
     if(won){driftCoins+=_gainDc;totalTalentPoints+=_gainTp;}
-    else{driftCoins=Math.max(0,driftCoins-_lossDc);totalTalentPoints=Math.max(0,totalTalentPoints-_lossTp);}
+    else{driftCoins=Math.max(0,driftCoins-_lossDc);totalTalentPoints=Math.max(spentTalentPoints,totalTalentPoints-_lossTp);}
     dbSaveProfile();
     raceResult={won,dcDelta:won?_gainDc:-_lossDc,tpDelta:won?_gainTp:-_lossTp};
     finish=false;levelLoaded=false;page='RACE_RESULT';
@@ -3782,11 +3782,11 @@ Promise.all([
                     for(let j=0;j<TILE_GRID_WIDTH;j++)
                         tiles[i][j].update(player.xPos,player.yPos);
                 startWallDeactivated=false;
-                if(page==='RACE_GAME'&&raceStartAt){
-                    // Wall-clock sync, clamped so gameStartTime is never in the future
-                    // (clock skew between devices could make the offset huge and freeze the "3")
-                    const _rOff=Math.min(0,(raceStartAt-Date.now())-3000);
-                    gameStartTime=performance.now()+_rOff;
+                if(page==='RACE_GAME'&&raceMapAnimStart){
+                    // Base countdown on local animation start (perf.now), not wall clock.
+                    // Both clients run the 2800ms map animation, so syncing on that gives
+                    // Supabase-latency-level accuracy (~100-300ms) instead of clock-skew issues.
+                    gameStartTime=raceMapAnimStart+1800;
                 } else {
                     gameStartTime=performance.now();
                 }
