@@ -2466,10 +2466,14 @@ async function dbSignUp(username,password){
         if(!data.user){authLoading=false;authError='Disable email confirmation in Supabase auth settings';return;}
         const ins=await db.from('profiles').insert({
             id:data.user.id,username,
-            drift_coins:0,total_talent_points:0,spent_talent_points:0,talents_purchased:[]
+            drift_coins:0,total_talent_points:0,spent_talent_points:0,talents_purchased:[],
+            owned_skins:[0],selected_skin:0
         });
         if(ins.error){authLoading=false;authError='DB error: '+ins.error.message;return;}
         currentUser=data.user;currentUsername=username;
+        ownedSkins=[0];selectedSkin=0;driftCoins=0;totalTalentPoints=0;spentTalentPoints=0;
+        talentPurchased=new Array(TALENT_COUNT).fill(false);talentRecomputeEffects();
+        localStorage.setItem('icedrift_owned_skins','[0]');localStorage.setItem('icedrift_skin','0');
         authLoading=false;showPassword=false;
         page='LEVELS';dbLoadRecords();joinChatChannel();subscribeToProfile();joinRaceChallengeChannel();
     }catch(e){authLoading=false;authError='Error: '+e.message;}
@@ -2492,6 +2496,10 @@ async function dbSignIn(username,password){
     if(session?.user){
         currentUser=session.user;
         await dbLoadProfile(session.user.id);
+        if(!currentUsername){
+            await db.auth.signOut();
+            currentUser=null;page='MENU';return;
+        }
         dbLoadRecords();
         page='LEVELS';joinChatChannel();subscribeToProfile();joinRaceChallengeChannel();
     }
