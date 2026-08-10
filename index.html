@@ -3914,6 +3914,7 @@ Promise.all([
                 if(duelError){const errW=duelError.length*(4*3+3);renderText(ctx,textSheet,duelError,Math.floor(SCREEN_WM-errW/2),dSendY+100,1,255,80,80);}
                 if(mjp){
                     if(inRect(mouseX,mouseY,fX,fY,fW,fH)){setActiveInput('username');}
+                    else{setActiveInput(null);}
                     if(inRect(mouseX,mouseY,dSendX,dSendY,dSendW,80)){duelInput=inputValues.username;sendDuelInvite();}
                 }
             } else if(raceState==='duel_wait'){
@@ -5442,7 +5443,7 @@ Promise.all([
             }
             // Main content (clipped)
             ctx.save();ctx.beginPath();ctx.rect(0,_clBarH,SCREEN_WIDTH,SCREEN_HEIGHT-_clBarH);ctx.clip();
-            const _mmColors=['','#505060','#96dcff','rgb(50,80,22)','#ff6450','#3c3c46','#dc3232','#0f0520','#ffdc32','#ffb432','#ffa032','#ffc832','#3c8220','#32dcdc'];
+            const _mmColors=['','#505060','#96dcff','rgb(95,160,38)','#ff6450','#3c3c46','#dc3232','#0f0520','#ffdc32','#ffb432','#ffa032','#ffc832','rgb(95,160,38)','#32dcdc'];
             if(customLevelsTab==='community'){
                 if(!communityLevelsLoaded){
                     const _ll='Loading...',_lw=_ll.length*(4*3+3);
@@ -5461,10 +5462,10 @@ Promise.all([
                         ctx.beginPath();ctx.roundRect(_cx,_cy,_clCardW,_clCardH,8);ctx.fill();
                         ctx.beginPath();ctx.roundRect(_cx,_cy,_clCardW,_clCardH,8);ctx.stroke();
                         const _mmPad=10,_mmW=_clCardW-_mmPad*2,_mmH=_mmW,_mmX=_cx+_mmPad,_mmY=_cy+_mmPad;
-                        ctx.fillStyle=_lv.background===2?'rgb(10,5,20)':'rgb(50,80,22)';ctx.fillRect(_mmX,_mmY,_mmW,_mmH);
-                        const _tSz=_mmW/100;
+                        ctx.fillStyle=_lv.background===2?'rgb(10,5,20)':'rgb(95,160,38)';ctx.fillRect(_mmX,_mmY,_mmW,_mmH);
+                        const _tSz=_mmW/100,_tSzR=Math.max(1,Math.round(_tSz));
                         if(_lv.grid&&_lv.grid.length)for(const [_tr,_tc,_tv] of _lv.grid){
-                            if(_tv>=1&&_tv<=13){ctx.fillStyle=_mmColors[_tv];ctx.fillRect(_mmX+_tc*_tSz,_mmY+_tr*_tSz,Math.max(1,_tSz),Math.max(1,_tSz));}}
+                            if(_tv>=1&&_tv<=13){ctx.fillStyle=_mmColors[_tv];ctx.fillRect(Math.round(_mmX+_tc*_tSz),Math.round(_mmY+_tr*_tSz),_tSzR,_tSzR);}}
                         if(_lv.spawn_row!=null){ctx.fillStyle='#64ff64';ctx.fillRect(_mmX+_lv.spawn_col*_tSz,_mmY+_lv.spawn_row*_tSz,Math.max(2,_tSz*2),Math.max(2,_tSz*2));}
                         const _nm=_lv.name||'Unnamed';
                         ctx.save();ctx.beginPath();ctx.rect(_cx+8,_mmY+_mmH+6,_clCardW-16,24);ctx.clip();
@@ -5493,10 +5494,10 @@ Promise.all([
                     ctx.beginPath();ctx.roundRect(_cx,_cy,_clCardW,_clCardH,8);ctx.stroke();
                     // Minimap
                     const _mmPad=10,_mmW=_clCardW-_mmPad*2,_mmH=_mmW,_mmX=_cx+_mmPad,_mmY=_cy+_mmPad;
-                    ctx.fillStyle=_lv.background===2?'rgb(10,5,20)':'rgb(50,80,22)';ctx.fillRect(_mmX,_mmY,_mmW,_mmH);
-                    const _tSz=_mmW/100;
+                    ctx.fillStyle=_lv.background===2?'rgb(10,5,20)':'rgb(95,160,38)';ctx.fillRect(_mmX,_mmY,_mmW,_mmH);
+                    const _tSz=_mmW/100,_tSzR=Math.max(1,Math.round(_tSz));
                     if(_lv.grid&&_lv.grid.length)for(const [_tr,_tc,_tv] of _lv.grid){
-                        if(_tv>=1&&_tv<=13){ctx.fillStyle=_mmColors[_tv];ctx.fillRect(_mmX+_tc*_tSz,_mmY+_tr*_tSz,Math.max(1,_tSz),Math.max(1,_tSz));}}
+                        if(_tv>=1&&_tv<=13){ctx.fillStyle=_mmColors[_tv];ctx.fillRect(Math.round(_mmX+_tc*_tSz),Math.round(_mmY+_tr*_tSz),_tSzR,_tSzR);}}
                     if(_lv.spawn_row!=null){ctx.fillStyle='#64ff64';ctx.fillRect(_mmX+_lv.spawn_col*_tSz,_mmY+_lv.spawn_row*_tSz,Math.max(2,_tSz*2),Math.max(2,_tSz*2));}
                     {const _badgeTxt=_lv.published?'Published':'Draft';
                     const _badgePx=_badgeTxt.length*(4*3+3);
@@ -5577,12 +5578,12 @@ Promise.all([
                 // Left: minimap
                 const _mmSz=Math.min(SCREEN_WM-80,SCREEN_HEIGHT-120);
                 const _mmX=Math.floor(SCREEN_WM/2-_mmSz/2),_mmY=Math.floor(SCREEN_HM-_mmSz/2);
-                const _mmColors2=['','#505060','#96dcff','rgb(50,80,22)','#ff6450','#3c3c46','#dc3232','#0f0520','#ffdc32','#ffb432','#ffa032','#ffc832','#3c8220','#32dcdc'];
-                ctx.fillStyle=lv.background===2?'rgb(10,5,20)':'rgb(50,80,22)';ctx.fillRect(_mmX,_mmY,_mmSz,_mmSz);
+                const _mmColors2=['','#505060','#96dcff','rgb(95,160,38)','#ff6450','#3c3c46','#dc3232','#0f0520','#ffdc32','#ffb432','#ffa032','#ffc832','rgb(95,160,38)','#32dcdc'];
+                ctx.fillStyle=lv.background===2?'rgb(10,5,20)':'rgb(95,160,38)';ctx.fillRect(_mmX,_mmY,_mmSz,_mmSz);
                 ctx.strokeStyle='rgb(145,145,152)';ctx.lineWidth=2;ctx.strokeRect(_mmX,_mmY,_mmSz,_mmSz);
-                const _tSz2=_mmSz/100;
+                const _tSz2=_mmSz/100,_tSz2R=Math.max(1,Math.round(_tSz2));
                 if(lv.grid&&lv.grid.length)for(const [_tr,_tc,_tv] of lv.grid){
-                    if(_tv>=1&&_tv<=13){ctx.fillStyle=_mmColors2[_tv];ctx.fillRect(_mmX+_tc*_tSz2,_mmY+_tr*_tSz2,Math.max(1,_tSz2),Math.max(1,_tSz2));}}
+                    if(_tv>=1&&_tv<=13){ctx.fillStyle=_mmColors2[_tv];ctx.fillRect(Math.round(_mmX+_tc*_tSz2),Math.round(_mmY+_tr*_tSz2),_tSz2R,_tSz2R);}}
                 if(lv.spawn_row!=null){ctx.fillStyle='#64ff64';ctx.fillRect(_mmX+lv.spawn_col*_tSz2,_mmY+lv.spawn_row*_tSz2,Math.max(3,_tSz2*2),Math.max(3,_tSz2*2));}
                 // Right: info panel
                 const _rpX=SCREEN_WM+40;
