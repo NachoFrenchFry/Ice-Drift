@@ -18,6 +18,7 @@ const _initScale=(window.innerWidth*dpr)/BASE_W;
 let SCREEN_WIDTH=BASE_W,SCREEN_HEIGHT=Math.round((window.innerHeight*dpr)/_initScale),SCREEN_WM=BASE_W/2,SCREEN_HM=Math.round((window.innerHeight*dpr)/_initScale)/2;
 let gameScale=_initScale,gameOffX=0,gameOffY=0;
 const TILE_GRID_WIDTH=100,TILE_GRID_HEIGHT=100,TILE_SIZE=52;
+const EDITOR_SIDEBAR_W=360;
 const CAR_WIDTH=45,CAR_HEIGHT=84;
 const ACCELERATION=0.4,FRICTION=0.98;
 const TITLE_WIDTH=((6*8)*9)+(6*8),TITLE_HEIGHT=20*6;
@@ -647,13 +648,26 @@ const LEVEL_LOBBY=[
 let page='MENU',currentLevel=0,levelLoaded=false;   
 let mouseJustPressed=false,mouseDown=false,mouseJustReleased=false;
 let rightMouseDown=false,rightMouseJustPressed=false;
+let editorGrid=null,editorSpawnRow=null,editorSpawnCol=null;
+let editorBackground=1,editorSelectedTile=2;
+let editorCamX=0,editorCamY=0,editorZoom=9;
+let editorPanning=false,editorPanStartX=0,editorPanStartY=0,editorPanCamX=0,editorPanCamY=0;
+let editorPaintValue=0,editorFromEditorPlay=false;
+let editorDrawMode='draw',editorLineStartRow=null,editorLineStartCol=null;
+let editorKeyLeft=false,editorKeyRight=false,editorKeyUp=false,editorKeyDown=false;
+let editorPalScroll=0;
+let editorLevelName='',editorLevelId=null,editorPublishing=false,editorLevelPublished=false;
+let customLevelsTab='community',myLevels=[],myLevelsLoaded=false,myLevelsScroll=0;
+let communityLevels=[],communityLevelsLoaded=false,communityLevelsScroll=0;
+let selectedCustomLevel=null,selectedCustomLevelPB=undefined,playingCommunityLevel=false;
+let contextMenu=null,editorLastPaintRow=null,editorLastPaintCol=null;
 let shiftJustPressed=false,shiftWasDown=false;
 let mobileControls=localStorage.getItem('mobileControls')==='1';
 let showParticles=localStorage.getItem('icedrift_particles')!=='0';
 let showScreenShake=localStorage.getItem('icedrift_screenshake')!=='0';
 let showEdgeGlow=localStorage.getItem('icedrift_edgeglow')!=='0';
 let aimTouchId=null,boostTouchId=null;
-function getMobBoostRect(){return{x:160,y:SCREEN_HEIGHT-150,w:120,h:120};};
+function getMobBoostRect(){return{x:160,y:SCREEN_HEIGHT-230,w:120,h:120};};
 let showHitboxes=false;
 // Auth state
 const DEVELOPERS=['nachofrenchfry'];
@@ -671,7 +685,7 @@ let scrollTouchId=null,scrollTouchStartY=0,scrollTouchStartVal=0,scrollTouchDrag
 let levelRecords=new Array(4).fill(null); // {username, time} per level
 let deleteConfirm=false;
 let activeInput=null; // 'username'|'password'
-const inputValues={username:'',password:'',confirmPw:''};
+const inputValues={username:'',password:'',confirmPw:'',levelName:''};
 let showPassword=false,cpShowPw=[false,false,false];
 let authFieldRects={un:null,pw:null};
 let caretPos=0;
@@ -1260,7 +1274,7 @@ class Car {
         hb.x=hbCx; hb.y=hbCy;
 
         // Wall step-sweep (must run BEFORE tile checks so signX/Y are set)
-        let xHit=false,yHit=false,sweepKillHit=false;
+        let xHit=false,yHit=false,sweepKillHit=false,sweepEndHit=false;
         const signX=Math.sign(this.xVel),signY=Math.sign(this.yVel);
         const xSteps=Math.ceil(Math.abs(this.xVel*dt));
         const ySteps=Math.ceil(Math.abs(this.yVel*dt));
@@ -1271,6 +1285,7 @@ class Car {
                 if(!t.active) continue;
                 if((t.type==="WALL"||t.type==="START_WALL")&&hasIntersection(hb,t.hitbox)) xHit=true;
                 if(t.type==="KILL_BLOCK"&&hasIntersection(hb,t.hitbox)){xHit=true;sweepKillHit=true;}
+                if(t.type==="END"&&hasIntersection(hb,t.hitbox)) sweepEndHit=true;
             }
         }
         hb.x=hbCx;
@@ -1281,6 +1296,7 @@ class Car {
                 if(!t.active) continue;
                 if((t.type==="WALL"||t.type==="START_WALL")&&hasIntersection(hb,t.hitbox)) yHit=true;
                 if(t.type==="KILL_BLOCK"&&hasIntersection(hb,t.hitbox)){yHit=true;sweepKillHit=true;}
+                if(t.type==="END"&&hasIntersection(hb,t.hitbox)) sweepEndHit=true;
             }
         }
         hb.x=hbCx; hb.y=hbCy;
@@ -1294,7 +1310,7 @@ class Car {
             if(t.active&&(t.type==="SPEED_UP"||t.type==="SPEED_LEFT"||t.type==="SPEED_DOWN"||t.type==="SPEED_RIGHT")){const _sn=performance.now();if(_sn>=speedTileEnd)speedGlowStart=_sn;speedTileEnd=_sn+2000;}
             if(t.active&&t.type==="GRASS") anyGrass=true; else allGrass=false;
             if(t.active&&t.type==="CHECKPOINT"){checkpointX=this.xPos;checkpointY=this.yPos;}
-            if(t.active&&t.type==="END"&&!finish){
+            if(t.active&&t.type==="END"&&!finish&&(hasIntersection(hb,t.hitbox)||sweepEndHit)){
                 finish=true; finishTick=performance.now();
                 {const _fb=performance.now();
                 const _cols=[[255,60,60],[255,180,0],[0,230,80],[0,180,255],[230,60,255],[255,240,0],[255,120,30],[60,255,220]];
@@ -1312,7 +1328,7 @@ class Car {
                     raceChannel?.send({type:'broadcast',event:'finish',payload:{uid:currentUser?.id,time:finishTime}});
                     checkRaceEnd();
                 }
-                if(!antiCheatFlagged&&page!=='RACE_GAME'){
+                if(!antiCheatFlagged&&page!=='RACE_GAME'&&!editorFromEditorPlay&&!playingCommunityLevel){
                 const dcRewards=[1,5,10,20,100];
                 driftCoins+=dcRewards[currentLevel]||0;
                 dbSaveProfile();
@@ -1987,6 +2003,60 @@ async function dbDeleteAccount(){
     inputValues.username='';inputValues.password='';deleteConfirm=false;
     page='MENU';
 }
+async function dbSaveCustomLevel(published,bestTime){
+    if(!currentUser)return;
+    const _tiles=[];
+    for(let _r=0;_r<TILE_GRID_HEIGHT;_r++)
+        for(let _c=0;_c<TILE_GRID_WIDTH;_c++)
+            if(editorGrid[_r][_c]!==0)_tiles.push([_r,_c,editorGrid[_r][_c]]);
+    const _payload={user_id:currentUser.id,name:editorLevelName||'Unnamed Level',
+        grid:_tiles,background:editorBackground,
+        spawn_row:editorSpawnRow,spawn_col:editorSpawnCol,
+        published:!!published,updated_at:new Date().toISOString(),creator_name:currentUsername||null};
+    if(bestTime!=null)_payload.best_time=bestTime;
+    if(editorLevelId){
+        await db.from('custom_levels').update(_payload).eq('id',editorLevelId).eq('user_id',currentUser.id);
+    } else {
+        const{data}=await db.from('custom_levels').insert(_payload).select('id').single();
+        if(data)editorLevelId=data.id;
+    }
+}
+async function dbLoadMyLevels(){
+    if(!currentUser){myLevels=[];myLevelsLoaded=true;return;}
+    const{data}=await db.from('custom_levels').select('*').eq('user_id',currentUser.id).order('created_at',{ascending:false});
+    myLevels=data||[];myLevelsLoaded=true;
+}
+async function dbDeleteCustomLevel(id){
+    if(!currentUser)return;
+    myLevels=myLevels.filter(l=>l.id!==id);
+    communityLevels=communityLevels.filter(l=>l.id!==id);
+    await db.from('custom_levels').delete().eq('id',id).eq('user_id',currentUser.id);
+}
+async function dbRenameCustomLevel(id,name){
+    if(!currentUser)return;
+    await db.from('custom_levels').update({name,updated_at:new Date().toISOString()}).eq('id',id).eq('user_id',currentUser.id);
+}
+async function dbLoadCommunityLevels(){
+    const{data}=await db.from('custom_levels').select('*').eq('published',true).order('updated_at',{ascending:false}).limit(100);
+    communityLevels=data||[];communityLevelsLoaded=true;
+}
+async function dbLoadCustomLevelPB(levelId){
+    if(!currentUser){selectedCustomLevelPB=null;return;}
+    const{data,error}=await db.from('custom_level_records').select('best_time').eq('user_id',currentUser.id).eq('level_id',levelId).maybeSingle();
+    if(error)console.error('[PB load]',error.message,error.code);
+    selectedCustomLevelPB=data?data.best_time:null;
+}
+async function dbSaveCustomLevelRecord(levelId,time){
+    if(!currentUser)return;
+    if(selectedCustomLevelPB!=null&&selectedCustomLevelPB<=time)return;
+    selectedCustomLevelPB=time;
+    const{error}=await db.from('custom_level_records').upsert({user_id:currentUser.id,level_id:levelId,best_time:time,updated_at:new Date().toISOString()},{onConflict:'user_id,level_id'});
+    if(error){console.error('[PB save]',error.message,error.code);return;}
+    if(selectedCustomLevel&&selectedCustomLevel.id===levelId){
+        if(selectedCustomLevel.global_best_time==null||time<selectedCustomLevel.global_best_time)
+            selectedCustomLevel.global_best_time=time;
+    }
+}
 async function dbChangeUsername(newUsername){
     authLoading=true;authError='';
     try{
@@ -2452,7 +2522,7 @@ function syncHidden(field){
 function setActiveInput(field){
     activeInput=field;
     if(field===null){hiddenUN.blur();hiddenPW.blur();canvas.style.transform='';return;}
-    const el=field==='username'?hiddenUN:hiddenPW;
+    const el=field==='password'||field==='confirmPw'?hiddenPW:hiddenUN;
     el.value=inputValues[field];
     caretPos=inputValues[field].length;
     el.setSelectionRange(caretPos,caretPos);
@@ -2516,10 +2586,21 @@ document.addEventListener('keydown',e=>{
     if(e.key==='Alt'){showHitboxes=true;}
     if((e.key==='r'||e.key==='R')&&(page==='GAME')){levelLoaded=false;}
     if(e.key==='Enter'&&currentUser){setChatActive(true);}
+    if(page==='LEVEL_EDITOR'&&['ArrowLeft','ArrowRight','ArrowUp','ArrowDown'].includes(e.key)){
+        e.preventDefault();
+        if(e.key==='ArrowLeft')editorKeyLeft=true;
+        else if(e.key==='ArrowRight')editorKeyRight=true;
+        else if(e.key==='ArrowUp')editorKeyUp=true;
+        else if(e.key==='ArrowDown')editorKeyDown=true;
+    }
 });
 document.addEventListener('keyup',e=>{
     if(e.key==='Shift') shiftWasDown=false;
     if(e.key==='Alt') showHitboxes=false;
+    if(e.key==='ArrowLeft')editorKeyLeft=false;
+    else if(e.key==='ArrowRight')editorKeyRight=false;
+    else if(e.key==='ArrowUp')editorKeyUp=false;
+    else if(e.key==='ArrowDown')editorKeyDown=false;
 });
 document.addEventListener('wheel',e=>{
     const _sd=e.deltaY*0.8;
@@ -2527,10 +2608,32 @@ document.addEventListener('wheel',e=>{
     if(page==='UPDATES') upScroll=Math.max(0,upScroll+_sd);
     if(page==='SHOP') shopScroll=Math.max(0,shopScroll+_sd);
     if(page==='SETTINGS') settingsScroll=Math.max(0,settingsScroll+_sd);
+    if(page==='CUSTOM_LEVELS'&&customLevelsTab==='my') myLevelsScroll=Math.max(0,myLevelsScroll+_sd);
+    if(page==='CUSTOM_LEVELS'&&customLevelsTab==='community') communityLevelsScroll=Math.max(0,communityLevelsScroll+_sd);
     if(currentUser&&chatActive){chatHistoryScroll=Math.max(0,chatHistoryScroll+_sd);}
+    if(page==='LEVEL_EDITOR'){
+        const _edAreaW=SCREEN_WIDTH-EDITOR_SIDEBAR_W;
+        if(mouseX<_edAreaW){
+            const _prevZ=editorZoom,_step=Math.max(1,Math.round(editorZoom*0.1)),_newZ=Math.max(4,Math.min(200,editorZoom+(e.deltaY>0?-_step:_step)));
+            if(_newZ!==_prevZ){editorCamX=Math.round(mouseX+(editorCamX-mouseX)*_newZ/_prevZ);editorCamY=Math.round(mouseY+(editorCamY-mouseY)*_newZ/_prevZ);editorZoom=_newZ;}
+        } else {
+            const _palAreaH=SCREEN_HEIGHT-94-100;
+            const _maxScroll=Math.max(0,15*80-_palAreaH);
+            editorPalScroll=Math.max(0,Math.min(_maxScroll,editorPalScroll+e.deltaY*0.6));
+        }
+    }
 },{passive:true});
 
 const UPDATE_LOG=[
+    {date:'AUGUST 10TH 2026',lines:[
+        '- Added Custom Levels. Build your own levels in the editor',
+        '  and publish them for everyone to play. Access via the',
+        '  new Community Levels button on the level select screen.',
+        '  If your level is interesting we might even consider adding it',
+        '  as an official level!',
+        '- Fixed resizing the window clipping the car through walls.',
+        '- Fixed ghost trail disappearing abruptly on wall hit.',
+    ]},
     {date:'AUGUST 8TH 2026',lines:[
         '- Added Duel a Player. Invite any player to a 1v1 race',
         '  with no DC or TP on the line — just for fun. Invite',
@@ -2977,6 +3080,79 @@ Promise.all([
     }
 
     const player=new Car();
+
+    function initEditor(){
+        editorGrid=[];
+        for(let i=0;i<TILE_GRID_HEIGHT;i++){editorGrid[i]=[];for(let j=0;j<TILE_GRID_WIDTH;j++)editorGrid[i][j]=0;}
+        editorSpawnRow=null;editorSpawnCol=null;editorBackground=1;editorSelectedTile=2;editorPalScroll=0;
+        const _edAreaW=SCREEN_WIDTH-EDITOR_SIDEBAR_W;
+        editorZoom=Math.max(4,Math.min(200,Math.min(Math.floor(_edAreaW/TILE_GRID_WIDTH),Math.floor(SCREEN_HEIGHT/TILE_GRID_HEIGHT))));
+        editorCamX=Math.floor(_edAreaW/2-TILE_GRID_WIDTH*editorZoom/2);
+        editorCamY=Math.floor(SCREEN_HEIGHT/2-TILE_GRID_HEIGHT*editorZoom/2);
+        editorPanning=false;editorPaintValue=0;editorLevelPublished=false;
+    }
+    function loadLevelIntoEditor(lv){
+        initEditor();
+        editorLevelId=lv.id;
+        editorLevelName=lv.name||'';
+        editorBackground=lv.background||1;
+        editorLevelPublished=lv.published||false;
+        editorSpawnRow=lv.spawn_row!=null?lv.spawn_row:null;
+        editorSpawnCol=lv.spawn_col!=null?lv.spawn_col:null;
+        if(lv.grid&&lv.grid.length){
+            for(const [_r,_c,_v] of lv.grid){
+                if(_r>=0&&_r<TILE_GRID_HEIGHT&&_c>=0&&_c<TILE_GRID_WIDTH)editorGrid[_r][_c]=_v;
+            }
+        }
+    }
+    function loadEditorLevel(){
+        checkpointX=null;checkpointY=null;
+        for(let i=0;i<TILE_GRID_HEIGHT;i++){
+            for(let j=0;j<TILE_GRID_WIDTH;j++){
+                const v=editorGrid[i][j];
+                if(v===1){tiles[i][j].active=true;tiles[i][j].type="WALL";}
+                else if(v===2){tiles[i][j].active=true;tiles[i][j].type="ICE";}
+                else if(v===3){tiles[i][j].active=true;tiles[i][j].type="START";}
+                else if(v===4){tiles[i][j].active=true;tiles[i][j].type="END";}
+                else if(v===5){tiles[i][j].active=true;tiles[i][j].type="START_WALL";}
+                else if(v===6){tiles[i][j].active=true;tiles[i][j].type="KILL_BLOCK";}
+                else if(v===7){tiles[i][j].active=true;tiles[i][j].type="VOID";}
+                else if(v===8){tiles[i][j].active=true;tiles[i][j].type="SPEED_UP";}
+                else if(v===9){tiles[i][j].active=true;tiles[i][j].type="SPEED_LEFT";}
+                else if(v===10){tiles[i][j].active=true;tiles[i][j].type="SPEED_DOWN";}
+                else if(v===11){tiles[i][j].active=true;tiles[i][j].type="SPEED_RIGHT";}
+                else if(v===12){tiles[i][j].active=true;tiles[i][j].type="GRASS";}
+                else if(v===13){tiles[i][j].active=true;tiles[i][j].type="CHECKPOINT";}
+                else{tiles[i][j].active=false;tiles[i][j].type="";}
+            }
+        }
+        for(let i=0;i<TILE_GRID_HEIGHT;i++)for(let j=0;j<TILE_GRID_WIDTH;j++)doSetTile(i,j);
+        levelHasKillBlocks=editorGrid.some(row=>row.includes(6));
+    }
+    function tryEditorLevel(){
+        if(editorSpawnRow===null)return;
+        INITIAL_CAR_X=editorSpawnCol*TILE_SIZE+Math.floor(TILE_SIZE/2)-SCREEN_WM;
+        INITIAL_CAR_Y=editorSpawnRow*TILE_SIZE+Math.floor(TILE_SIZE/2)-SCREEN_HM;
+        bg.setType(editorBackground);
+        loadEditorLevel();
+        player.reset();
+        for(let i=0;i<TILE_GRID_HEIGHT;i++)for(let j=0;j<TILE_GRID_WIDTH;j++)tiles[i][j].update(player.xPos,player.yPos);
+        startWallDeactivated=false;finish=false;boostOverriding=false;particles=[];iceParticleAccum=0;
+        prevIceVelX=0;prevIceVelY=0;countdownGoEnd=0;ghostTrail=[];gameStartTime=performance.now();
+        levelLoaded=true;editorFromEditorPlay=true;page='GAME';
+    }
+    function playCommunityLevel(){
+        const lv=selectedCustomLevel;
+        INITIAL_CAR_X=lv.spawn_col*TILE_SIZE+Math.floor(TILE_SIZE/2)-SCREEN_WM;
+        INITIAL_CAR_Y=lv.spawn_row*TILE_SIZE+Math.floor(TILE_SIZE/2)-SCREEN_HM;
+        bg.setType(lv.background);
+        loadEditorLevel();
+        player.reset();
+        for(let i=0;i<TILE_GRID_HEIGHT;i++)for(let j=0;j<TILE_GRID_WIDTH;j++)tiles[i][j].update(player.xPos,player.yPos);
+        startWallDeactivated=false;finish=false;boostOverriding=false;particles=[];iceParticleAccum=0;
+        prevIceVelX=0;prevIceVelY=0;countdownGoEnd=0;ghostTrail=[];gameStartTime=performance.now();
+        levelLoaded=true;playingCommunityLevel=true;page='GAME';
+    }
     const bg=new Background();
     const menuBg=new MenuBackground();
 
@@ -3001,10 +3177,19 @@ Promise.all([
     function inRect(mx,my,bx,by,bw,bh){return mx>=bx&&mx<=bx+bw&&my>=by&&my<=by+bh;}
 
     window.addEventListener('resize',()=>{
+        const _prevSHM=SCREEN_HM;
         resizeCanvas();
         bg.rebuild();
         menuBg.rebuild();
         [mouseX,mouseY]=toDesign(_lastClientX,_lastClientY);
+        // SCREEN_WM is always BASE_W/2 so never changes; SCREEN_HM can change.
+        // Compensate car.yPos so the player doesn't jump through walls on resize.
+        const _dhm=SCREEN_HM-_prevSHM;
+        if(_dhm!==0&&(page==='GAME'||page==='RACE_GAME')){
+            player.yPos-=_dhm;
+            INITIAL_CAR_Y-=_dhm;
+            if(checkpointY!==null)checkpointY-=_dhm;
+        }
     });
 
     let lastTime=0;
@@ -3019,6 +3204,7 @@ Promise.all([
         ctx.imageSmoothingEnabled=false;
         const mjp=mouseJustPressed; mouseJustPressed=false;
         const mjr=mouseJustReleased; mouseJustReleased=false;
+        const _startPage=page;
         const sjp=shiftJustPressed;  shiftJustPressed=false;
         const rmp=rightMouseJustPressed; rightMouseJustPressed=false;
 
@@ -3133,12 +3319,14 @@ Promise.all([
             const hubLevelX=hubLobbyX+hubBtnW+hubGap;
             const hubBtnY=Math.floor(SCREEN_HM-hubBtnH/2);
             const hubRaceY=hubBtnY+hubBtnH+16;
+            const hubCreateY=hubRaceY+hubBtnH+16;
             if(mjp&&inRect(mouseX,mouseY,hubLobbyX,hubBtnY,hubBtnW,hubBtnH)){
                 if(!currentUser){inputValues.username='';inputValues.password='';authError='';page='LOGIN';}
                 else page='LOBBY';
             }
             if(mjp&&inRect(mouseX,mouseY,hubLevelX,hubBtnY,hubBtnW,hubBtnH)) page='LEVEL_SELECT';
             if(mjp&&inRect(mouseX,mouseY,hubLobbyX,hubRaceY,hubTotalW,hubBtnH)) page='RACE';
+            if(mjp&&inRect(mouseX,mouseY,hubLobbyX,hubCreateY,hubTotalW,hubBtnH)){customLevelsTab='community';myLevelsLoaded=false;myLevelsScroll=0;page='CUSTOM_LEVELS';}
             const tb=getTalentBtn();
             if(mjp&&inRect(mouseX,mouseY,tb.bx,tb.by,tb.bw,tb.bh)) page='TALENTS';
             const shb=getShopBtn();
@@ -3168,6 +3356,7 @@ Promise.all([
             renderTextButton(ctx,btnSheet,textSheet,0,hubLobbyX,hubBtnY,hubBtnW,'LOBBY',0,0,0);
             renderTextButton(ctx,btnSheet,textSheet,0,hubLevelX,hubBtnY,hubBtnW,'LEVELS',0,0,0);
             renderTextButton(ctx,btnSheet,textSheet,0,hubLobbyX,hubRaceY,hubTotalW,'MULTIPLAYER RACING',0,0,0);
+            renderTextButton(ctx,redBtnSheet,textSheet,16,hubLobbyX,hubCreateY,hubTotalW,'CUSTOM LEVELS',0,0,0);
             // Talents button
             renderButton(ctx,btnSheet,textSheet,3,tb.bx,tb.by,tb.bw,tb.bh,'');
             if(inRect(mouseX,mouseY,tb.bx,tb.by,tb.bw,tb.bh)){
@@ -3922,10 +4111,15 @@ Promise.all([
 
         } else if(page==='GAME'||page==='RACE_GAME'){
             if(!levelLoaded){
-                loadLevel();
-                bg.setType(LEVEL_BACKGROUND[currentLevel]);
-                INITIAL_CAR_X=(1600-SCREEN_WM)-Math.floor(CAR_WIDTH/2)+LEVEL_START_X[currentLevel];
-                INITIAL_CAR_Y=(900-SCREEN_HM)-Math.floor(CAR_HEIGHT/2)+LEVEL_START_Y[currentLevel];
+                if(editorFromEditorPlay){
+                    loadEditorLevel();bg.setType(editorBackground);
+                    INITIAL_CAR_X=editorSpawnCol*TILE_SIZE+Math.floor(TILE_SIZE/2)-SCREEN_WM;
+                    INITIAL_CAR_Y=editorSpawnRow*TILE_SIZE+Math.floor(TILE_SIZE/2)-SCREEN_HM;
+                } else {
+                    loadLevel();bg.setType(LEVEL_BACKGROUND[currentLevel]);
+                    INITIAL_CAR_X=(1600-SCREEN_WM)-Math.floor(CAR_WIDTH/2)+LEVEL_START_X[currentLevel];
+                    INITIAL_CAR_Y=(900-SCREEN_HM)-Math.floor(CAR_HEIGHT/2)+LEVEL_START_Y[currentLevel];
+                }
                 player.reset();
                 for(let i=0;i<TILE_GRID_HEIGHT;i++)
                     for(let j=0;j<TILE_GRID_WIDTH;j++)
@@ -3956,6 +4150,8 @@ Promise.all([
             const gameBb=getBackBtn();
             if(mjp&&inRect(mouseX,mouseY,gameBb.bx,gameBb.by,gameBb.bw,gameBb.bh)){
                 if(page==='RACE_GAME'){raceChannel?.send({type:'broadcast',event:'forfeit',payload:{uid:currentUser?.id}});applyRaceResult(false);}
+                else if(editorFromEditorPlay){editorFromEditorPlay=false;levelLoaded=false;page='LEVEL_EDITOR';}
+                else if(playingCommunityLevel){playingCommunityLevel=false;levelLoaded=false;page='CUSTOM_LEVEL_DETAIL';}
                 else page='LEVEL_SELECT';
             }
 
@@ -3967,7 +4163,7 @@ Promise.all([
                 const _gl=ghostTrail.length>0?ghostTrail[ghostTrail.length-1]:null;
                 const _gdx=_gl?player.xPos-_gl.wx:999,_gdy=_gl?player.yPos-_gl.wy:999;
                 if(_gdx*_gdx+_gdy*_gdy>22*22){
-                    ghostTrail.push({wx:player.xPos,wy:player.yPos,dir:player.drawDir,born:_gnow,life:380});
+                    ghostTrail.push({wx:player.xPos,wy:player.yPos,dir:player.drawDir,born:_gnow,life:380,spd:_gspd});
                 }
             }
             ghostTrail=ghostTrail.filter(g=>_gnow-g.born<g.life);}
@@ -4225,16 +4421,15 @@ Promise.all([
             {const _sk=SKINS[Math.min(selectedSkin,SKINS.length-1)];
             const _rW=_sk.sw*SKIN_SCALE,_rH=CAR_HEIGHT,_pivY=10;
             const _gnow2=performance.now();
-            const _curSpd=Math.sqrt(player.xVel*player.xVel+player.yVel*player.yVel);
-            const _spdFade=Math.max(0,Math.min(1,(_curSpd-18)/6));
             for(const g of ghostTrail){
                 const _dx=g.wx-player.xPos,_dy=g.wy-player.yPos;
                 if(_dx*_dx+_dy*_dy<28*28) continue;
                 const _gt=(_gnow2-g.born)/g.life;
                 if(_gt>=1) continue;
                 const _fi=Math.min(1,(_gnow2-g.born)/100);
+                const _gsf=Math.max(0,Math.min(1,((g.spd||24)-18)/6));
                 ctx.save();
-                ctx.globalAlpha=Math.max(0,_fi*(1-_gt)*0.5*_spdFade);
+                ctx.globalAlpha=Math.max(0,_fi*(1-_gt)*0.5*_gsf);
                 ctx.imageSmoothingEnabled=false;
                 ctx.translate(SCREEN_WM+(g.wx-player.xPos),SCREEN_HM+(g.wy-player.yPos)-_pivY);
                 ctx.rotate(g.dir*Math.PI/180);
@@ -4346,6 +4541,14 @@ Promise.all([
             }}
 
             renderButton(ctx,btnSheet,textSheet,4,gameBb.bx,gameBb.by,gameBb.bw,gameBb.bh,'');
+            if(editorFromEditorPlay&&editorPublishing){
+                const _pb='BEAT THE LEVEL TO PUBLISH';const _sz=2;
+                const _pw=_pb.length*(4*_sz*3+3),_ph=7*3*_sz;
+                const _px=Math.floor(SCREEN_WM-_pw/2),_py=16;
+                ctx.save();ctx.globalAlpha=0.75;ctx.fillStyle='rgb(0,0,0)';
+                ctx.beginPath();ctx.roundRect(_px-14,_py-10,_pw+28,_ph+20,8);ctx.fill();ctx.restore();
+                renderText(ctx,textSheet,_pb,_px+2,_py+2,_sz,0,0,0);
+                renderText(ctx,textSheet,_pb,_px,_py,_sz,255,255,255);}
 
             // Tactical sight minimap
             if(tacticalSightUnlocked){
@@ -4460,7 +4663,20 @@ Promise.all([
                 const th=charH*3*size;
                 renderText(ctx,textSheet,text,SCREEN_WM-tw/2,(SCREEN_HM-th/2)-SCREEN_HM/2,size);
                 if(performance.now()-finishTick>=3000){
-                    page='LEVEL_SELECT';
+                    if(editorFromEditorPlay){
+                        if(editorPublishing){
+                            editorPublishing=false;
+                            editorFromEditorPlay=false;levelLoaded=false;
+                            customLevelsTab='my';page='CUSTOM_LEVELS';
+                            dbSaveCustomLevel(true,finishTime).then(()=>{myLevelsLoaded=false;communityLevelsLoaded=false;});
+                        } else {
+                            editorFromEditorPlay=false;levelLoaded=false;page='LEVEL_EDITOR';
+                        }
+                    } else if(playingCommunityLevel){
+                        playingCommunityLevel=false;levelLoaded=false;
+                        if(selectedCustomLevel)dbSaveCustomLevelRecord(selectedCustomLevel.id,finishTime);
+                        page='CUSTOM_LEVEL_DETAIL';
+                    } else page='LEVEL_SELECT';
                     finish=false;
                 }
             }
@@ -4523,7 +4739,7 @@ Promise.all([
                 const _lgl=ghostTrail.length>0?ghostTrail[ghostTrail.length-1]:null;
                 const _lgdx=_lgl?player.xPos-_lgl.wx:999,_lgdy=_lgl?player.yPos-_lgl.wy:999;
                 if(_lgdx*_lgdx+_lgdy*_lgdy>22*22)
-                    ghostTrail.push({wx:player.xPos,wy:player.yPos,dir:player.drawDir,born:_lgnow,life:380});
+                    ghostTrail.push({wx:player.xPos,wy:player.yPos,dir:player.drawDir,born:_lgnow,life:380,spd:_lgspd});
             }
             ghostTrail=ghostTrail.filter(g=>_lgnow-g.born<g.life);}
             {const spd=Math.sqrt(player.xVel*player.xVel+player.yVel*player.yVel);
@@ -4917,16 +5133,15 @@ Promise.all([
             {const _lsk=SKINS[Math.min(selectedSkin,SKINS.length-1)];
             const _lrW=_lsk.sw*SKIN_SCALE,_lrH=CAR_HEIGHT,_lpivY=10;
             const _lnow2=performance.now();
-            const _lCurSpd=Math.sqrt(player.xVel*player.xVel+player.yVel*player.yVel);
-            const _lSpdFade=Math.max(0,Math.min(1,(_lCurSpd-18)/6));
             for(const g of ghostTrail){
                 const _dx=g.wx-player.xPos,_dy=g.wy-player.yPos;
                 if(_dx*_dx+_dy*_dy<28*28) continue;
                 const _gt=(_lnow2-g.born)/g.life;
                 if(_gt>=1) continue;
                 const _fi=Math.min(1,(_lnow2-g.born)/100);
+                const _lgsf=Math.max(0,Math.min(1,((g.spd||24)-18)/6));
                 ctx.save();
-                ctx.globalAlpha=Math.max(0,_fi*(1-_gt)*0.5*_lSpdFade);
+                ctx.globalAlpha=Math.max(0,_fi*(1-_gt)*0.5*_lgsf);
                 ctx.imageSmoothingEnabled=false;
                 ctx.translate(SCREEN_WM+(g.wx-player.xPos),SCREEN_HM+(g.wy-player.yPos)-_lpivY);
                 ctx.rotate(g.dir*Math.PI/180);
@@ -5072,6 +5287,674 @@ Promise.all([
             const backW=200,backY=SCREEN_HM+140,backX=Math.floor(SCREEN_WM-backW/2);
             renderTextButton(ctx,btnSheet,textSheet,0,backX,backY,backW,'BACK',0,0,0);
             if(mjp&&inRect(mouseX,mouseY,backX,backY,backW,80)){leaveRaceAll();page='RACE';}
+
+        } else if(page==='LEVEL_NAME'){
+            // ── INPUT ──
+            const _lnBb=getBackBtn();
+            if(mjp&&inRect(mouseX,mouseY,_lnBb.bx,_lnBb.by,_lnBb.bw,_lnBb.bh)){setActiveInput(null);page='CUSTOM_LEVELS';customLevelsTab='my';}
+            const _lnFX=Math.floor(SCREEN_WM-280),_lnFY=Math.floor(SCREEN_HM-24),_lnFW=560,_lnFH=56;
+            if(mjp&&inRect(mouseX,mouseY,_lnFX,_lnFY,_lnFW,_lnFH))setActiveInput('levelName');
+            const _lnCW=200,_lnCY=_lnFY+_lnFH+30,_lnCX=Math.floor(SCREEN_WM-_lnCW/2);
+            const _lnCanCreate=inputValues.levelName.trim().length>0;
+            if(mjp&&_lnCanCreate&&inRect(mouseX,mouseY,_lnCX,_lnCY,_lnCW,80)){
+                editorLevelName=inputValues.levelName.trim();
+                inputValues.levelName='';setActiveInput(null);
+                if(editorLevelId){
+                    const _ri=myLevels.findIndex(l=>l.id===editorLevelId);
+                    if(_ri>=0)myLevels[_ri]={...myLevels[_ri],name:editorLevelName};
+                    dbRenameCustomLevel(editorLevelId,editorLevelName);
+                    page='CUSTOM_LEVELS';customLevelsTab='my';
+                } else {
+                    editorLevelId=null;initEditor();page='LEVEL_EDITOR';
+                }
+            }
+            // ── RENDER ──
+            ctx.fillStyle='#d0d0d0';ctx.fillRect(0,0,SCREEN_WIDTH,SCREEN_HEIGHT);
+            renderButton(ctx,btnSheet,textSheet,4,_lnBb.bx,_lnBb.by,_lnBb.bw,_lnBb.bh,'');
+            {const _ttl=editorLevelId?'RENAME LEVEL':'NAME YOUR LEVEL',_tw=_ttl.length*(4*3+3);
+            renderText(ctx,textSheet,_ttl,Math.floor(SCREEN_WM-_tw/2),_lnFY-60,1,25,25,65);}
+            // Input field
+            {const _foc=activeInput==='levelName';
+            ctx.fillStyle=_foc?'rgb(222,228,248)':'rgb(210,210,216)';
+            ctx.strokeStyle=_foc?'rgb(75,108,220)':'rgb(148,148,158)';ctx.lineWidth=2;
+            ctx.beginPath();ctx.roundRect(_lnFX,_lnFY,_lnFW,_lnFH,6);ctx.fill();
+            ctx.beginPath();ctx.roundRect(_lnFX,_lnFY,_lnFW,_lnFH,6);ctx.stroke();
+            if(inputValues.levelName)renderText(ctx,textSheet,inputValues.levelName,_lnFX+14,_lnFY+Math.floor((_lnFH-21)/2),1,18,18,48);
+            if(_foc&&Math.floor(performance.now()/530)%2===0){
+                const _cpx=_lnFX+14+(inputValues.levelName?inputValues.levelName.length*(4*3+3):0);
+                ctx.fillStyle='rgb(55,85,200)';ctx.fillRect(_cpx,_lnFY+Math.floor((_lnFH-21)/2),2,21);}}
+            // Create button
+            if(!_lnCanCreate){ctx.save();ctx.globalAlpha=0.4;}
+            renderTextButton(ctx,btnSheet,textSheet,0,_lnCX,_lnCY,_lnCW,editorLevelId?'RENAME':'CREATE',0,0,0);
+            if(!_lnCanCreate)ctx.restore();
+
+        } else if(page==='CUSTOM_LEVELS'){
+            // ── INPUT ──
+            const _clBb=getBackBtn();
+            if(mjp&&inRect(mouseX,mouseY,_clBb.bx,_clBb.by,_clBb.bw,_clBb.bh)){
+                contextMenu=null;
+                if(customLevelsTab==='my'){customLevelsTab='community';}
+                else{page='LEVELS';}
+            }
+            const _clBarH=64;
+            // MY LEVELS button (only shown on community tab)
+            const _clMyX=SCREEN_WIDTH-210,_clMyY=Math.floor((_clBarH-44)/2),_clMyW=180,_clMyH=44;
+            if(customLevelsTab==='community'&&mjp&&inRect(mouseX,mouseY,_clMyX,_clMyY,_clMyW,_clMyH)){
+                contextMenu=null;
+                customLevelsTab='my';
+                if(!myLevelsLoaded){myLevelsLoaded=true;dbLoadMyLevels();}
+            }
+            if(customLevelsTab==='my'&&!myLevelsLoaded){myLevelsLoaded=true;dbLoadMyLevels();}
+            if(customLevelsTab==='community'&&!communityLevelsLoaded){communityLevelsLoaded=true;dbLoadCommunityLevels();}
+            // Card layout constants (shared by both tabs)
+            const _clCardW=200,_clCardH=250,_clGap=20;
+            const _clCols=Math.floor((SCREEN_WIDTH-40)/(_clCardW+_clGap));
+            const _clStartX=Math.floor((SCREEN_WIDTH-_clCols*(_clCardW+_clGap)+_clGap)/2);
+            const _clStartY=_clBarH+20;
+            const _clContentH=SCREEN_HEIGHT-_clStartY;
+            // Scroll clamp
+            {const _tc=customLevelsTab==='my'?myLevels.length+1:communityLevels.length;
+            const _ms=Math.max(0,Math.ceil(Math.max(1,_tc)/_clCols)*(_clCardH+_clGap)+20-_clContentH);
+            if(customLevelsTab==='my')myLevelsScroll=Math.min(myLevelsScroll,_ms);
+            else communityLevelsScroll=Math.min(communityLevelsScroll,_ms);}
+            const _clScroll=customLevelsTab==='my'?myLevelsScroll:communityLevelsScroll;
+            // Plus button (MY LEVELS only)
+            const _plusIdx=customLevelsTab==='my'?myLevels.length:-1;
+            const _plusRow=_plusIdx>=0?Math.floor(_plusIdx/_clCols):0;
+            const _plusCol=_plusIdx>=0?_plusIdx%_clCols:0;
+            const _plusX=_clStartX+_plusCol*(_clCardW+_clGap);
+            const _plusY=_clStartY+_plusRow*(_clCardH+_clGap)-myLevelsScroll;
+            const _overPlus=customLevelsTab==='my'&&inRect(mouseX,mouseY,_plusX,_plusY,_clCardW,_clCardH);
+            if(mjp&&_overPlus){inputValues.levelName='';editorLevelId=null;editorLevelName='';setActiveInput('levelName');page='LEVEL_NAME';}
+            // Context menu action handling (runs before card clicks)
+            const _cmW=180,_cmItemH=40,_cmPad=4;
+            let _ctxHandled=false;
+            if(contextMenu){
+                const _cm=contextMenu;
+                const _cmX=Math.min(_cm.x,SCREEN_WIDTH-_cmW-_cmPad);
+                const _cmY=Math.min(_cm.y,SCREEN_HEIGHT-(_cmItemH*2+_cmPad*2)-_cmPad);
+                if(mjp){
+                    _ctxHandled=true;
+                    if(inRect(mouseX,mouseY,_cmX,_cmY+_cmPad,_cmW,_cmItemH)){
+                        editorLevelId=_cm.lv.id;inputValues.levelName=_cm.lv.name||'';setActiveInput('levelName');contextMenu=null;page='LEVEL_NAME';
+                    } else if(inRect(mouseX,mouseY,_cmX,_cmY+_cmPad+_cmItemH,_cmW,_cmItemH)){
+                        if(_cm.confirm){dbDeleteCustomLevel(_cm.lv.id);contextMenu=null;}
+                        else{contextMenu={..._cm,confirm:true};}
+                    } else {contextMenu=null;}
+                }
+            }
+            // MY LEVELS card left-click → open editor
+            if(mjp&&!_ctxHandled&&!_overPlus&&customLevelsTab==='my'&&myLevelsLoaded){
+                for(let _ci=0;_ci<myLevels.length;_ci++){
+                    const _col=_ci%_clCols,_row=Math.floor(_ci/_clCols);
+                    const _cx=_clStartX+_col*(_clCardW+_clGap),_cy=_clStartY+_row*(_clCardH+_clGap)-myLevelsScroll;
+                    if(inRect(mouseX,mouseY,_cx,_cy,_clCardW,_clCardH)){loadLevelIntoEditor(myLevels[_ci]);contextMenu=null;page='LEVEL_EDITOR';break;}
+                }
+            }
+            // MY LEVELS card right-click → context menu
+            if(rmp&&customLevelsTab==='my'&&myLevelsLoaded){
+                contextMenu=null;
+                for(let _ci=0;_ci<myLevels.length;_ci++){
+                    const _col=_ci%_clCols,_row=Math.floor(_ci/_clCols);
+                    const _cx=_clStartX+_col*(_clCardW+_clGap),_cy=_clStartY+_row*(_clCardH+_clGap)-myLevelsScroll;
+                    if(inRect(mouseX,mouseY,_cx,_cy,_clCardW,_clCardH)){contextMenu={x:mouseX,y:mouseY,lv:myLevels[_ci],confirm:false};break;}
+                }
+            }
+            // COMMUNITY LEVELS card clicks
+            if(mjp&&customLevelsTab==='community'&&communityLevelsLoaded){
+                for(let _ci=0;_ci<communityLevels.length;_ci++){
+                    const _col=_ci%_clCols,_row=Math.floor(_ci/_clCols);
+                    const _cx=_clStartX+_col*(_clCardW+_clGap),_cy=_clStartY+_row*(_clCardH+_clGap)-communityLevelsScroll;
+                    if(inRect(mouseX,mouseY,_cx,_cy,_clCardW,_clCardH)){
+                        selectedCustomLevel=communityLevels[_ci];selectedCustomLevelPB=undefined;
+                        loadLevelIntoEditor(selectedCustomLevel);
+                        dbLoadCustomLevelPB(selectedCustomLevel.id);
+                        page='CUSTOM_LEVEL_DETAIL';break;
+                    }
+                }
+            }
+            // ── RENDER ──
+            ctx.fillStyle='#d0d0d0';ctx.fillRect(0,0,SCREEN_WIDTH,SCREEN_HEIGHT);
+            // Top bar
+            ctx.fillStyle='rgb(188,188,188)';ctx.fillRect(0,0,SCREEN_WIDTH,_clBarH);
+            ctx.strokeStyle='rgb(158,158,158)';ctx.lineWidth=1;
+            ctx.beginPath();ctx.moveTo(0,_clBarH);ctx.lineTo(SCREEN_WIDTH,_clBarH);ctx.stroke();
+            {const _ttl=customLevelsTab==='community'?'Community levels':'My levels',_tw=_ttl.length*(4*3+3);
+            renderText(ctx,textSheet,_ttl,Math.floor(SCREEN_WM-_tw/2),Math.floor((_clBarH-21)/2),1,18,18,18);}
+            // MY LEVELS button (only on community tab)
+            if(customLevelsTab==='community'){
+                const _mlHov=inRect(mouseX,mouseY,_clMyX,_clMyY,_clMyW,_clMyH);
+                ctx.fillStyle=_mlHov?'rgb(192,208,240)':'rgb(200,210,228)';
+                ctx.strokeStyle=_mlHov?'rgb(95,138,210)':'rgb(148,163,200)';ctx.lineWidth=_mlHov?2:1;
+                ctx.beginPath();ctx.roundRect(_clMyX,_clMyY,_clMyW,_clMyH,6);ctx.fill();
+                ctx.beginPath();ctx.roundRect(_clMyX,_clMyY,_clMyW,_clMyH,6);ctx.stroke();
+                const _ml='My levels',_mw=_ml.length*(4*3+3);
+                renderText(ctx,textSheet,_ml,_clMyX+Math.floor((_clMyW-_mw)/2),_clMyY+Math.floor((_clMyH-21)/2),1,_mlHov?15:35,_mlHov?45:50,_mlHov?170:138);
+            }
+            // Main content (clipped)
+            ctx.save();ctx.beginPath();ctx.rect(0,_clBarH,SCREEN_WIDTH,SCREEN_HEIGHT-_clBarH);ctx.clip();
+            const _mmColors=['','#505060','#96dcff','#50c850','#ff6450','#3c3c46','#dc3232','#0f0520','#ffdc32','#ffb432','#ffa032','#ffc832','#3c8220','#32dcdc'];
+            if(customLevelsTab==='community'){
+                if(!communityLevelsLoaded){
+                    const _ll='Loading...',_lw=_ll.length*(4*3+3);
+                    renderText(ctx,textSheet,_ll,Math.floor(SCREEN_WM-_lw/2),Math.floor(SCREEN_HM),1,80,80,80);
+                } else if(communityLevels.length===0){
+                    const _cl='No published levels yet',_cw=_cl.length*(4*3+3);
+                    renderText(ctx,textSheet,_cl,Math.floor(SCREEN_WM-_cw/2),Math.floor(SCREEN_HM),1,90,90,90);
+                } else {
+                    for(let _ci=0;_ci<communityLevels.length;_ci++){
+                        const _lv=communityLevels[_ci];
+                        const _col=_ci%_clCols,_row=Math.floor(_ci/_clCols);
+                        const _cx=_clStartX+_col*(_clCardW+_clGap),_cy=_clStartY+_row*(_clCardH+_clGap)-communityLevelsScroll;
+                        if(_cy+_clCardH<_clBarH||_cy>SCREEN_HEIGHT)continue;
+                        const _hover=inRect(mouseX,mouseY,_cx,_cy,_clCardW,_clCardH);
+                        ctx.fillStyle=_hover?'rgb(235,235,238)':'rgb(220,220,224)';ctx.strokeStyle=_hover?'rgb(115,128,182)':'rgb(175,175,180)';ctx.lineWidth=1;
+                        ctx.beginPath();ctx.roundRect(_cx,_cy,_clCardW,_clCardH,8);ctx.fill();
+                        ctx.beginPath();ctx.roundRect(_cx,_cy,_clCardW,_clCardH,8);ctx.stroke();
+                        const _mmPad=10,_mmW=_clCardW-_mmPad*2,_mmH=_mmW,_mmX=_cx+_mmPad,_mmY=_cy+_mmPad;
+                        ctx.fillStyle=_lv.background===2?'rgb(10,5,20)':'rgb(50,80,22)';ctx.fillRect(_mmX,_mmY,_mmW,_mmH);
+                        const _tSz=_mmW/100;
+                        if(_lv.grid&&_lv.grid.length)for(const [_tr,_tc,_tv] of _lv.grid){
+                            if(_tv>=1&&_tv<=13){ctx.fillStyle=_mmColors[_tv];ctx.fillRect(_mmX+_tc*_tSz,_mmY+_tr*_tSz,Math.max(1,_tSz),Math.max(1,_tSz));}}
+                        if(_lv.spawn_row!=null){ctx.fillStyle='#64ff64';ctx.fillRect(_mmX+_lv.spawn_col*_tSz,_mmY+_lv.spawn_row*_tSz,Math.max(2,_tSz*2),Math.max(2,_tSz*2));}
+                        const _nm=_lv.name||'Unnamed';
+                        ctx.save();ctx.beginPath();ctx.rect(_cx+8,_mmY+_mmH+6,_clCardW-16,24);ctx.clip();
+                        renderText(ctx,textSheet,_nm,_cx+8,_mmY+_mmH+6,1,18,18,40);ctx.restore();
+                        if(_lv.creator_name){const _maxCr=_clCardW-16,_pw=s=>s.split('').reduce((a,c)=>a+(c==='M'||c==='W'||c==='m'||c==='w'||c==='V'||c==='v'?18:15),0);
+                            let _un=_lv.creator_name||'';if(_pw('by '+_un)>_maxCr){while(_un.length>0&&_pw('by '+_un+'...')>_maxCr)_un=_un.slice(0,-1);_un+='...';}
+                            ctx.save();ctx.beginPath();ctx.rect(_cx+8,_mmY+_mmH+28,_maxCr,30);ctx.clip();
+                            renderText(ctx,textSheet,'by '+_un,_cx+8,_mmY+_mmH+28,1,48,68,105);ctx.restore();}
+                    }
+                }
+            } else if(!myLevelsLoaded){
+                const _ll='LOADING...',_lw=_ll.length*(4*3+3);
+                renderText(ctx,textSheet,_ll,Math.floor(SCREEN_WM-_lw/2),Math.floor(SCREEN_HM),1,80,80,80);
+            } else {
+                // MY LEVELS cards
+                for(let _ci=0;_ci<myLevels.length;_ci++){
+                    const _lv=myLevels[_ci];
+                    const _col=_ci%_clCols,_row=Math.floor(_ci/_clCols);
+                    const _cx=_clStartX+_col*(_clCardW+_clGap),_cy=_clStartY+_row*(_clCardH+_clGap)-myLevelsScroll;
+                    if(_cy+_clCardH<_clBarH||_cy>SCREEN_HEIGHT)continue;
+                    const _hover=inRect(mouseX,mouseY,_cx,_cy,_clCardW,_clCardH);
+                    const _ctxActive=contextMenu&&contextMenu.lv&&contextMenu.lv.id===_lv.id;
+                    ctx.fillStyle=_ctxActive?'rgb(212,218,240)':_hover?'rgb(235,235,238)':'rgb(220,220,224)';
+                    ctx.strokeStyle=_ctxActive?'rgb(88,108,205)':_hover?'rgb(115,128,182)':'rgb(175,175,180)';ctx.lineWidth=_ctxActive||_hover?2:1;
+                    ctx.beginPath();ctx.roundRect(_cx,_cy,_clCardW,_clCardH,8);ctx.fill();
+                    ctx.beginPath();ctx.roundRect(_cx,_cy,_clCardW,_clCardH,8);ctx.stroke();
+                    // Minimap
+                    const _mmPad=10,_mmW=_clCardW-_mmPad*2,_mmH=_mmW,_mmX=_cx+_mmPad,_mmY=_cy+_mmPad;
+                    ctx.fillStyle=_lv.background===2?'rgb(10,5,20)':'rgb(50,80,22)';ctx.fillRect(_mmX,_mmY,_mmW,_mmH);
+                    const _tSz=_mmW/100;
+                    if(_lv.grid&&_lv.grid.length)for(const [_tr,_tc,_tv] of _lv.grid){
+                        if(_tv>=1&&_tv<=13){ctx.fillStyle=_mmColors[_tv];ctx.fillRect(_mmX+_tc*_tSz,_mmY+_tr*_tSz,Math.max(1,_tSz),Math.max(1,_tSz));}}
+                    if(_lv.spawn_row!=null){ctx.fillStyle='#64ff64';ctx.fillRect(_mmX+_lv.spawn_col*_tSz,_mmY+_lv.spawn_row*_tSz,Math.max(2,_tSz*2),Math.max(2,_tSz*2));}
+                    {const _badgeTxt=_lv.published?'Published':'Draft';
+                    const _badgePx=_badgeTxt.length*(4*3+3);
+                    ctx.save();ctx.globalAlpha=0.88;
+                    ctx.fillStyle=_lv.published?'rgb(20,125,48)':'rgb(148,100,12)';
+                    ctx.beginPath();ctx.roundRect(_mmX,_mmY+2,_badgePx+12,27,4);ctx.fill();ctx.restore();
+                    renderText(ctx,textSheet,_badgeTxt,_mmX+6,_mmY+5,1,_lv.published?210:255,_lv.published?255:225,_lv.published?220:115);}
+                    const _nm=_lv.name||'Unnamed';
+                    ctx.save();ctx.beginPath();ctx.rect(_cx+8,_mmY+_mmH+6,_clCardW-16,24);ctx.clip();
+                    renderText(ctx,textSheet,_nm,_cx+8,_mmY+_mmH+6,1,18,18,40);ctx.restore();
+                    if(_lv.best_time!=null){const _bt=_lv.best_time.toFixed(2)+'s',_bw=_bt.length*(4*3+3);
+                        renderText(ctx,textSheet,_bt,_cx+_clCardW-_bw-8,_mmY+_mmH+28,1,15,92,192);}
+                }
+                // Plus button card
+                ctx.fillStyle=_overPlus?'rgb(210,218,240)':'rgb(200,200,206)';
+                ctx.strokeStyle=_overPlus?'rgb(100,135,208)':'rgb(155,155,165)';ctx.lineWidth=_overPlus?2:1;
+                ctx.beginPath();ctx.roundRect(_plusX,_plusY,_clCardW,_clCardH,8);ctx.fill();
+                ctx.beginPath();ctx.roundRect(_plusX,_plusY,_clCardW,_clCardH,8);ctx.stroke();
+                const _pcx=_plusX+_clCardW/2,_pcy=_plusY+_clCardH/2;
+                ctx.strokeStyle=_overPlus?'rgb(68,95,188)':'rgb(115,115,128)';ctx.lineWidth=4;
+                ctx.beginPath();ctx.moveTo(_pcx-22,_pcy);ctx.lineTo(_pcx+22,_pcy);ctx.stroke();
+                ctx.beginPath();ctx.moveTo(_pcx,_pcy-22);ctx.lineTo(_pcx,_pcy+22);ctx.stroke();
+                if(_overPlus){const _tl='CREATE NEW LEVEL',_tw=_tl.length*(4*3+3);
+                    const _ttAbove=_plusY-34>=_clBarH+4;
+                    const _ttBY=_ttAbove?_plusY-34:_plusY+_clCardH+8;
+                    const _ttTY=_ttAbove?_plusY-28:_plusY+_clCardH+14;
+                    ctx.save();ctx.globalAlpha=0.92;ctx.fillStyle='rgb(208,215,235)';
+                    ctx.beginPath();ctx.roundRect(_plusX+Math.floor((_clCardW-_tw-16)/2),_ttBY,_tw+16,28,6);ctx.fill();ctx.restore();
+                    renderText(ctx,textSheet,_tl,_plusX+Math.floor((_clCardW-_tw)/2),_ttTY,1,18,42,155);}
+            }
+            ctx.restore();
+            renderButton(ctx,btnSheet,textSheet,4,_clBb.bx,_clBb.by,_clBb.bw,_clBb.bh,'');
+            // Context menu overlay
+            if(contextMenu&&customLevelsTab==='my'){
+                const _cm=contextMenu;
+                const _cmX=Math.min(_cm.x,SCREEN_WIDTH-_cmW-_cmPad);
+                const _cmY=Math.min(_cm.y,SCREEN_HEIGHT-(_cmItemH*2+_cmPad*2)-_cmPad);
+                // Shadow
+                ctx.save();ctx.globalAlpha=0.18;ctx.fillStyle='rgb(0,0,0)';
+                ctx.beginPath();ctx.roundRect(_cmX+3,_cmY+3,_cmW,_cmItemH*2+_cmPad*2,8);ctx.fill();ctx.restore();
+                // Background
+                ctx.fillStyle='rgb(232,232,236)';ctx.strokeStyle='rgb(168,168,178)';ctx.lineWidth=1;
+                ctx.beginPath();ctx.roundRect(_cmX,_cmY,_cmW,_cmItemH*2+_cmPad*2,8);ctx.fill();
+                ctx.beginPath();ctx.roundRect(_cmX,_cmY,_cmW,_cmItemH*2+_cmPad*2,8);ctx.stroke();
+                // RENAME option
+                const _renHov=inRect(mouseX,mouseY,_cmX,_cmY+_cmPad,_cmW,_cmItemH);
+                if(_renHov){ctx.fillStyle='rgb(205,215,242)';ctx.beginPath();ctx.roundRect(_cmX+3,_cmY+_cmPad,_cmW-6,_cmItemH,5);ctx.fill();}
+                const _rt='RENAME',_rw=_rt.length*(4*3+3);
+                renderText(ctx,textSheet,_rt,_cmX+Math.floor((_cmW-_rw)/2),_cmY+_cmPad+Math.floor((_cmItemH-21)/2),1,_renHov?12:52,_renHov?42:68,_renHov?172:152);
+                // Divider
+                ctx.strokeStyle='rgb(188,188,198)';ctx.lineWidth=1;
+                ctx.beginPath();ctx.moveTo(_cmX+8,_cmY+_cmPad+_cmItemH);ctx.lineTo(_cmX+_cmW-8,_cmY+_cmPad+_cmItemH);ctx.stroke();
+                // DELETE option
+                const _delY2=_cmY+_cmPad+_cmItemH;
+                const _delHov=inRect(mouseX,mouseY,_cmX,_delY2,_cmW,_cmItemH);
+                const _conf=_cm.confirm;
+                if(_delHov||_conf){ctx.fillStyle=_conf?'rgb(228,195,195)':'rgb(238,212,212)';ctx.beginPath();ctx.roundRect(_cmX+3,_delY2,_cmW-6,_cmItemH,5);ctx.fill();}
+                const _dt=_conf?'CONFIRM?':'DELETE',_dw=_dt.length*(4*3+3);
+                renderText(ctx,textSheet,_dt,_cmX+Math.floor((_cmW-_dw)/2),_delY2+Math.floor((_cmItemH-21)/2),1,_conf?148:168,_conf?18:28,_conf?18:28);
+            }
+
+        } else if(page==='CUSTOM_LEVEL_DETAIL'){
+            const _cldBb=getBackBtn();
+            const lv=selectedCustomLevel;
+            // PLAY button
+            const _playW=300,_playH=80,_playX=Math.floor(SCREEN_WM+40+(SCREEN_WIDTH-SCREEN_WM-80)/2-_playW/2);
+            const _playY=Math.floor(SCREEN_HM+80);
+            if(mjp&&inRect(mouseX,mouseY,_cldBb.bx,_cldBb.by,_cldBb.bw,_cldBb.bh)){page='CUSTOM_LEVELS';}
+            if(mjp&&lv&&inRect(mouseX,mouseY,_playX,_playY,_playW,_playH)){playCommunityLevel();}
+            // EDIT button (own level only)
+            const _isOwn=lv&&currentUser&&lv.user_id===currentUser.id;
+            const _editW=200,_editH=60,_editX=Math.floor(SCREEN_WM+40+(SCREEN_WIDTH-SCREEN_WM-80)/2-_editW/2);
+            const _editY=_playY+_playH+20;
+            if(mjp&&_isOwn&&inRect(mouseX,mouseY,_editX,_editY,_editW,_editH)){loadLevelIntoEditor(lv);page='LEVEL_EDITOR';}
+            // ── RENDER ──
+            ctx.fillStyle='#d0d0d0';ctx.fillRect(0,0,SCREEN_WIDTH,SCREEN_HEIGHT);
+            if(lv){
+                // Left: minimap
+                const _mmSz=Math.min(SCREEN_WM-80,SCREEN_HEIGHT-120);
+                const _mmX=Math.floor(SCREEN_WM/2-_mmSz/2),_mmY=Math.floor(SCREEN_HM-_mmSz/2);
+                const _mmColors2=['','#505060','#96dcff','#50c850','#ff6450','#3c3c46','#dc3232','#0f0520','#ffdc32','#ffb432','#ffa032','#ffc832','#3c8220','#32dcdc'];
+                ctx.fillStyle=lv.background===2?'rgb(10,5,20)':'rgb(50,80,22)';ctx.fillRect(_mmX,_mmY,_mmSz,_mmSz);
+                ctx.strokeStyle='rgb(145,145,152)';ctx.lineWidth=2;ctx.strokeRect(_mmX,_mmY,_mmSz,_mmSz);
+                const _tSz2=_mmSz/100;
+                if(lv.grid&&lv.grid.length)for(const [_tr,_tc,_tv] of lv.grid){
+                    if(_tv>=1&&_tv<=13){ctx.fillStyle=_mmColors2[_tv];ctx.fillRect(_mmX+_tc*_tSz2,_mmY+_tr*_tSz2,Math.max(1,_tSz2),Math.max(1,_tSz2));}}
+                if(lv.spawn_row!=null){ctx.fillStyle='#64ff64';ctx.fillRect(_mmX+lv.spawn_col*_tSz2,_mmY+lv.spawn_row*_tSz2,Math.max(3,_tSz2*2),Math.max(3,_tSz2*2));}
+                // Right: info panel
+                const _rpX=SCREEN_WM+40;
+                // Level name
+                const _lnTxt=lv.name||'Unnamed';
+                const _lnSz=2,_lnW=_lnTxt.length*(4*_lnSz*3+3);
+                renderText(ctx,textSheet,_lnTxt,_rpX,SCREEN_HM-220,_lnSz,12,12,48);
+                // By creator
+                if(lv.creator_name){renderText(ctx,textSheet,'by '+lv.creator_name,_rpX,SCREEN_HM-170,1,45,65,95);}
+                // Divider
+                ctx.strokeStyle='rgb(152,152,162)';ctx.lineWidth=1;
+                ctx.beginPath();ctx.moveTo(_rpX,SCREEN_HM-140);ctx.lineTo(SCREEN_WIDTH-40,SCREEN_HM-140);ctx.stroke();
+                // Personal best
+                renderText(ctx,textSheet,'Personal best',_rpX,SCREEN_HM-120,1,55,55,78);
+                const _pbTxt=selectedCustomLevelPB===undefined?'Loading...':(selectedCustomLevelPB==null?'n/a':(selectedCustomLevelPB.toFixed(2)+'s'));
+                const _pbCol=selectedCustomLevelPB!=null&&selectedCustomLevelPB!==undefined;
+                renderText(ctx,textSheet,_pbTxt,_rpX,SCREEN_HM-90,2,_pbCol?12:95,_pbCol?88:95,_pbCol?192:105);
+                // Global best
+                renderText(ctx,textSheet,'Global best',_rpX,SCREEN_HM-30,1,55,55,78);
+                const _gbTxt=lv.global_best_time!=null?(lv.global_best_time.toFixed(2)+'s'):'n/a';
+                const _gbCol=lv.global_best_time!=null;
+                renderText(ctx,textSheet,_gbTxt,_rpX,SCREEN_HM,2,_gbCol?148:95,_gbCol?88:95,_gbCol?8:105);
+                // Play button
+                renderTextButton(ctx,redBtnSheet,textSheet,16,_playX,_playY,_playW,'Play',0,0,0);
+                // Edit button (own level)
+                if(_isOwn){
+                    ctx.fillStyle='rgb(198,210,234)';ctx.strokeStyle='rgb(122,150,208)';ctx.lineWidth=1;
+                    ctx.beginPath();ctx.roundRect(_editX,_editY,_editW,_editH,6);ctx.fill();ctx.stroke();
+                    const _etxt='Edit',_ew=_etxt.length*(4*3+3);
+                    renderText(ctx,textSheet,_etxt,_editX+Math.floor((_editW-_ew)/2),_editY+Math.floor((_editH-21)/2),1,32,62,178);}
+            }
+            renderButton(ctx,btnSheet,textSheet,4,_cldBb.bx,_cldBb.by,_cldBb.bw,_cldBb.bh,'');
+
+        } else if(page==='LEVEL_EDITOR'){
+            const _edAreaW=SCREEN_WIDTH-EDITOR_SIDEBAR_W;
+            const _edSideX=_edAreaW;
+            const EDITOR_PALETTE=[
+                {v:0,name:'ERASE',sx:-1,sy:-1,col:'rgb(55,55,60)'},{v:99,name:'SPAWN',sx:-1,sy:-1,col:'rgb(100,255,100)'},
+                {v:2,name:'ICE',sx:102,sy:0},{v:1,name:'WALL',sx:0,sy:0},
+                {v:4,name:'END',sx:136,sy:17},
+                {v:5,name:'START WALL',sx:0,sy:0},{v:6,name:'KILL BLOCK',sx:153,sy:0},
+                {v:7,name:'VOID',sx:153,sy:17},{v:12,name:'GRASS',sx:119,sy:0},
+                {v:8,name:'SPEED UP',sx:170,sy:0},{v:9,name:'SPEED LEFT',sx:170,sy:17},
+                {v:10,name:'SPEED DOWN',sx:170,sy:34},{v:11,name:'SPEED RIGHT',sx:170,sy:51},
+                {v:13,name:'CHECKPOINT',sx:187,sy:0}
+            ];
+            // Arrow key panning
+            const _panSpeed=Math.max(editorZoom*0.3,6)*dt;
+            if(editorKeyLeft)editorCamX=Math.round(editorCamX+_panSpeed);
+            if(editorKeyRight)editorCamX=Math.round(editorCamX-_panSpeed);
+            if(editorKeyUp)editorCamY=Math.round(editorCamY+_panSpeed);
+            if(editorKeyDown)editorCamY=Math.round(editorCamY-_panSpeed);
+            // Try/Publish button positions (defined early to block accidental grid paints)
+            const _edTryW=260,_edTryH=80,_edTryX=Math.floor(_edAreaW/2-270),_edTryY=SCREEN_HEIGHT-_edTryH-20;
+            const _edPubW=240,_edPubH=80,_edPubX=_edTryX+_edTryW+20,_edPubY=_edTryY;
+            // Grid cell under mouse
+            const _edInGrid=mouseX>=0&&mouseX<_edAreaW&&mouseY>=0&&mouseY<SCREEN_HEIGHT;
+            const _edOverTry=inRect(mouseX,mouseY,_edTryX,_edTryY,_edTryW,_edTryH);
+            const _edOverPub=inRect(mouseX,mouseY,_edPubX,_edPubY,_edPubW,_edPubH);
+            const _gc=_edInGrid?Math.floor((mouseX-editorCamX)/editorZoom):-1;
+            const _gr=_edInGrid?Math.floor((mouseY-editorCamY)/editorZoom):-1;
+            const _validCell=_gc>=0&&_gc<TILE_GRID_WIDTH&&_gr>=0&&_gr<TILE_GRID_HEIGHT;
+            // Input: DRAW mode
+            if(editorDrawMode==='draw'){
+                if(mouseDown&&_edInGrid&&!_edOverTry&&!_edOverPub){
+                    if(mjp){editorPaintValue=editorSelectedTile;editorLastPaintRow=null;editorLastPaintCol=null;}
+                    if(_validCell){
+                        // Bresenham from last painted cell to fill gaps when mouse moves fast
+                        const _pts=[];
+                        if(editorLastPaintRow!==null){
+                            let _lr=editorLastPaintRow,_lc=editorLastPaintCol;
+                            const _dr=Math.abs(_gr-_lr),_dc=Math.abs(_gc-_lc);
+                            const _sr=_lr<_gr?1:-1,_sc=_lc<_gc?1:-1;
+                            let _le=_dr-_dc;
+                            while(true){_pts.push([_lr,_lc]);if(_lr===_gr&&_lc===_gc)break;const _e2=2*_le;if(_e2>-_dc){_le-=_dc;_lr+=_sr;}if(_e2<_dr){_le+=_dr;_lc+=_sc;}}
+                        } else _pts.push([_gr,_gc]);
+                        editorLastPaintRow=_gr;editorLastPaintCol=_gc;
+                        for(const [_pr,_pc] of _pts){
+                            if(editorPaintValue===99){editorSpawnRow=_pr;editorSpawnCol=_pc;}
+                            else{editorGrid[_pr][_pc]=editorPaintValue;
+                                if(editorPaintValue===0&&editorSpawnRow===_pr&&editorSpawnCol===_pc){editorSpawnRow=null;editorSpawnCol=null;}}
+                        }
+                    }
+                } else {editorLastPaintRow=null;editorLastPaintCol=null;}
+            }
+            // Input: FILL mode
+            if(editorDrawMode==='fill'){
+                if(mjp&&_validCell&&!_edOverTry&&!_edOverPub){
+                    if(editorSelectedTile===99){editorSpawnRow=_gr;editorSpawnCol=_gc;}
+                    else{
+                        const _fv=editorSelectedTile,_tv=editorGrid[_gr][_gc];
+                        if(_fv!==_tv){
+                            const _fq=[[_gr,_gc]],_fvis=new Set([_gr+','+_gc]);
+                            while(_fq.length){
+                                const [_fr,_fc]=_fq.shift();
+                                editorGrid[_fr][_fc]=_fv;
+                                if(_fv===0&&editorSpawnRow===_fr&&editorSpawnCol===_fc){editorSpawnRow=null;editorSpawnCol=null;}
+                                for(const[_nr,_nc] of [[_fr-1,_fc],[_fr+1,_fc],[_fr,_fc-1],[_fr,_fc+1]]){
+                                    if(_nr<0||_nr>=TILE_GRID_HEIGHT||_nc<0||_nc>=TILE_GRID_WIDTH)continue;
+                                    const _k=_nr+','+_nc;
+                                    if(_fvis.has(_k)||editorGrid[_nr][_nc]!==_tv)continue;
+                                    _fvis.add(_k);_fq.push([_nr,_nc]);
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+            // Input: LINE mode
+            if(editorDrawMode==='line'){
+                if(mjp&&_validCell&&!_edOverTry&&!_edOverPub){editorLineStartRow=_gr;editorLineStartCol=_gc;}
+                if(mjr&&editorLineStartRow!==null){
+                    if(_validCell){
+                        let _lr=editorLineStartRow,_lc=editorLineStartCol;
+                        const _dr=Math.abs(_gr-_lr),_dc=Math.abs(_gc-_lc);
+                        const _sr=_lr<_gr?1:-1,_sc=_lc<_gc?1:-1;
+                        let _le=_dr-_dc;
+                        while(true){
+                            if(editorSelectedTile===99){editorSpawnRow=_lr;editorSpawnCol=_lc;}
+                            else{editorGrid[_lr][_lc]=editorSelectedTile;
+                                if(editorSelectedTile===0&&editorSpawnRow===_lr&&editorSpawnCol===_lc){editorSpawnRow=null;editorSpawnCol=null;}}
+                            if(_lr===_gr&&_lc===_gc)break;
+                            const _e2=2*_le;
+                            if(_e2>-_dc){_le-=_dc;_lr+=_sr;}
+                            if(_e2<_dr){_le+=_dr;_lc+=_sc;}
+                        }
+                    }
+                    editorLineStartRow=null;editorLineStartCol=null;
+                }
+            }
+            // Sidebar layout constants
+            const _palPad=6,_palAreaY=94,_palItemH=80,_palAreaH=SCREEN_HEIGHT-_palAreaY-100;
+            const _maxPalScroll=Math.max(0,EDITOR_PALETTE.length*_palItemH-_palAreaH);
+            editorPalScroll=Math.min(editorPalScroll,_maxPalScroll);
+            // Background toggle (very top of sidebar)
+            const _edBgBtnY=4,_edBgBtnH=52;
+            if(mjp&&mouseX>=_edSideX+_palPad&&mouseX<SCREEN_WIDTH-_palPad&&mouseY>=_edBgBtnY&&mouseY<_edBgBtnY+_edBgBtnH)
+                editorBackground=editorBackground===1?2:1;
+            // Tile selection (scrollable)
+            for(let _pi=0;_pi<EDITOR_PALETTE.length;_pi++){
+                const _iy=_palAreaY+_pi*_palItemH-editorPalScroll;
+                if(_iy+_palItemH-2<_palAreaY||_iy>_palAreaY+_palAreaH)continue;
+                const _cy1=Math.max(_iy,_palAreaY),_cy2=Math.min(_iy+_palItemH-2,_palAreaY+_palAreaH);
+                if(mjp&&mouseX>=_edSideX+_palPad&&mouseX<SCREEN_WIDTH-_palPad&&mouseY>=_cy1&&mouseY<_cy2)
+                    editorSelectedTile=EDITOR_PALETTE[_pi].v;
+            }
+            // Draw mode section (bottom of sidebar - always visible, not scrollable)
+            const _dmSectionY=SCREEN_HEIGHT-100,_dmLabelY=_dmSectionY+6,_edModeBtnY=_dmLabelY+28,_edModeBtnH=40;
+            const _edModeBtnW=Math.floor((EDITOR_SIDEBAR_W-_palPad*2-4)/3);
+            const _edModes=['draw','fill','line'];
+            for(let _mi=0;_mi<3;_mi++){
+                const _mbx=_edSideX+_palPad+_mi*(_edModeBtnW+2);
+                if(mjp&&mouseX>=_mbx&&mouseX<_mbx+_edModeBtnW&&mouseY>=_edModeBtnY&&mouseY<_edModeBtnY+_edModeBtnH){
+                    editorDrawMode=_edModes[_mi];
+                    if(editorDrawMode!=='line')editorLineStartRow=null;
+                }
+            }
+            // Back button + Try Level + Publish buttons
+            const _edBb=getBackBtn();
+            if(mjp&&inRect(mouseX,mouseY,_edBb.bx,_edBb.by,_edBb.bw,_edBb.bh)){
+                editorLineStartRow=null;
+                if(currentUser){
+                    dbSaveCustomLevel(editorLevelPublished,null).then(()=>{myLevelsLoaded=false;});
+                }
+                page='CUSTOM_LEVELS';customLevelsTab='my';
+            }
+            const _canTry=editorSpawnRow!==null;
+            const _hasEnd=editorGrid?editorGrid.some(row=>row.includes(4)):false;
+            const _canPublish=_canTry&&_hasEnd&&!!currentUser;
+            if(mjp&&_canTry&&inRect(mouseX,mouseY,_edTryX,_edTryY,_edTryW,_edTryH))tryEditorLevel();
+            if(mjp&&_canPublish&&_edOverPub){editorPublishing=true;tryEditorLevel();}
+
+            // ── RENDER ──
+            ctx.fillStyle=editorBackground===1?'rgb(55,90,25)':'rgb(10,5,20)';
+            ctx.fillRect(0,0,_edAreaW,SCREEN_HEIGHT);
+            // Tile spritesheet coords indexed by v-1 (v=1..13)
+            const _TSX=[0,102,136,136,0,153,153,170,170,170,170,119,187];
+            const _TSY=[0,0,0,17,0,0,17,0,17,34,51,0,0];
+            // Wall connection sprite: same logic as Tile.computeWallSprite, reading editorGrid directly
+            const _edWallSprite=(r,c)=>{
+                const W=(r2,c2)=>r2>=0&&r2<TILE_GRID_HEIGHT&&c2>=0&&c2<TILE_GRID_WIDTH&&(editorGrid[r2][c2]===1||editorGrid[r2][c2]===5);
+                const u=W(r-1,c),d=W(r+1,c),l=W(r,c-1),rr=W(r,c+1);
+                const UL=W(r-1,c-1),UR=W(r-1,c+1),DL=W(r+1,c-1),DR=W(r+1,c+1);
+                let tn=1,tt=1,rot=0;
+                if(!u&&!d&&!l&&!rr){tn=1;tt=1;rot=0;}
+                else if(!u&&!d&&!l&& rr){tn=2;tt=1;rot=0;}
+                else if(!u&&!d&& l&&!rr){tn=2;tt=1;rot=2;}
+                else if(!u&& d&&!l&&!rr){tn=2;tt=1;rot=1;}
+                else if( u&&!d&&!l&&!rr){tn=2;tt=1;rot=3;}
+                else if( u&&!d&&!l&& rr&& UR){tn=3;tt=1;rot=0;}
+                else if(!u&& d&&!l&& rr&& DR){tn=3;tt=1;rot=1;}
+                else if(!u&& d&& l&&!rr&& DL){tn=3;tt=1;rot=2;}
+                else if( u&&!d&& l&&!rr&& UL){tn=3;tt=1;rot=3;}
+                else if( u&&!d&&!l&& rr&&!UR){tn=3;tt=2;rot=0;}
+                else if(!u&& d&&!l&& rr&&!DR){tn=3;tt=2;rot=1;}
+                else if(!u&& d&& l&&!rr&&!DL){tn=3;tt=2;rot=2;}
+                else if( u&&!d&& l&&!rr&&!UL){tn=3;tt=2;rot=3;}
+                else if(!u&&!d&& l&& rr){tn=4;tt=1;rot=0;}
+                else if( u&& d&&!l&&!rr){tn=4;tt=1;rot=1;}
+                else if( u&&!d&& l&& rr&& UR&& UL){tn=5;tt=1;rot=0;}
+                else if( u&& d&&!l&& rr&& UR&& DR){tn=5;tt=1;rot=1;}
+                else if(!u&& d&& l&& rr&& DR&& DL){tn=5;tt=1;rot=2;}
+                else if( u&& d&& l&&!rr&& DL&& UL){tn=5;tt=1;rot=3;}
+                else if( u&&!d&& l&& rr&& UR&&!UL){tn=5;tt=2;rot=0;}
+                else if( u&& d&&!l&& rr&&!UR&& DR){tn=5;tt=2;rot=1;}
+                else if(!u&& d&& l&& rr&&!DR&& DL){tn=5;tt=2;rot=2;}
+                else if( u&& d&& l&&!rr&&!DL&& UL){tn=5;tt=2;rot=3;}
+                else if( u&&!d&& l&& rr&&!UR&& UL){tn=5;tt=3;rot=0;}
+                else if( u&& d&&!l&& rr&& UR&&!DR){tn=5;tt=3;rot=1;}
+                else if(!u&& d&& l&& rr&& DR&&!DL){tn=5;tt=3;rot=2;}
+                else if( u&& d&& l&&!rr&& DL&&!UL){tn=5;tt=3;rot=3;}
+                else if( u&&!d&& l&& rr&&!UR&&!UL){tn=5;tt=4;rot=0;}
+                else if( u&& d&&!l&& rr&&!UR&&!DR){tn=5;tt=4;rot=1;}
+                else if(!u&& d&& l&& rr&&!DR&&!DL){tn=5;tt=4;rot=2;}
+                else if( u&& d&& l&&!rr&&!DL&&!UL){tn=5;tt=4;rot=3;}
+                else if(u&&d&&l&&rr&& UL&& UR&& DL&& DR){tn=6;tt=1;rot=0;}
+                else if(u&&d&&l&&rr&&!UL&& UR&& DL&& DR){tn=6;tt=2;rot=0;}
+                else if(u&&d&&l&&rr&& UL&&!UR&& DL&& DR){tn=6;tt=2;rot=1;}
+                else if(u&&d&&l&&rr&& UL&& UR&& DL&&!DR){tn=6;tt=2;rot=2;}
+                else if(u&&d&&l&&rr&& UL&& UR&&!DL&& DR){tn=6;tt=2;rot=3;}
+                else if(u&&d&&l&&rr&&!UL&&!UR&& DL&& DR){tn=6;tt=3;rot=0;}
+                else if(u&&d&&l&&rr&& UL&&!UR&& DL&&!DR){tn=6;tt=3;rot=1;}
+                else if(u&&d&&l&&rr&& UL&& UR&&!DL&&!DR){tn=6;tt=3;rot=2;}
+                else if(u&&d&&l&&rr&&!UL&& UR&&!DL&& DR){tn=6;tt=3;rot=3;}
+                else if(u&&d&&l&&rr&&!UL&&!UR&& DL&&!DR){tn=6;tt=4;rot=0;}
+                else if(u&&d&&l&&rr&& UL&&!UR&&!DL&&!DR){tn=6;tt=4;rot=1;}
+                else if(u&&d&&l&&rr&&!UL&& UR&&!DL&&!DR){tn=6;tt=4;rot=2;}
+                else if(u&&d&&l&&rr&&!UL&&!UR&&!DL&& DR){tn=6;tt=4;rot=3;}
+                else if(u&&d&&l&&rr&&!UL&&!UR&&!DL&&!DR){tn=6;tt=5;rot=0;}
+                else if(u&&d&&l&&rr&& UL&&!UR&&!DL&& DR){tn=6;tt=6;rot=0;}
+                else if(u&&d&&l&&rr&&!UL&& UR&& DL&&!DR){tn=6;tt=6;rot=1;}
+                return {sx:(tn-1)*17,sy:(tt-1)*17,rot};
+            };
+            // Draw visible grid cells
+            const _v0c=Math.max(0,Math.floor(-editorCamX/editorZoom));
+            const _v1c=Math.min(TILE_GRID_WIDTH,Math.ceil((_edAreaW-editorCamX)/editorZoom));
+            const _v0r=Math.max(0,Math.floor(-editorCamY/editorZoom));
+            const _v1r=Math.min(TILE_GRID_HEIGHT,Math.ceil((SCREEN_HEIGHT-editorCamY)/editorZoom));
+            for(let _r=_v0r;_r<_v1r;_r++){
+                for(let _c=_v0c;_c<_v1c;_c++){
+                    const _cx=Math.round(_c*editorZoom+editorCamX),_cy=Math.round(_r*editorZoom+editorCamY);
+                    const _cw=Math.max(1,Math.round((_c+1)*editorZoom+editorCamX)-_cx);
+                    const _ch=Math.max(1,Math.round((_r+1)*editorZoom+editorCamY)-_cy);
+                    if(editorSpawnRow===_r&&editorSpawnCol===_c){ctx.fillStyle='rgb(100,255,100)';ctx.fillRect(_cx,_cy,_cw,_ch);}
+                    else{const _v=editorGrid[_r][_c];
+                        if(_v===1||_v===5){
+                            const _ws=_edWallSprite(_r,_c);
+                            if(_ws.rot===0){ctx.drawImage(sheet,_ws.sx,_ws.sy,17,17,_cx,_cy,_cw,_ch);}
+                            else{ctx.save();ctx.translate(_cx+_cw/2,_cy+_ch/2);ctx.rotate(_ws.rot*Math.PI/2);ctx.drawImage(sheet,_ws.sx,_ws.sy,17,17,-_cw/2,-_ch/2,_cw,_ch);ctx.restore();}
+                        }else if(_v>=2&&_v<=13){ctx.drawImage(sheet,_TSX[_v-1],_TSY[_v-1],17,17,_cx,_cy,_cw,_ch);}
+                    }
+                }
+            }
+            // Line mode preview
+            if(editorDrawMode==='line'&&editorLineStartRow!==null&&mouseDown&&_validCell){
+                let _lr=editorLineStartRow,_lc=editorLineStartCol;
+                const _dr=Math.abs(_gr-_lr),_dc=Math.abs(_gc-_lc);
+                const _sr=_lr<_gr?1:-1,_sc=_lc<_gc?1:-1;
+                let _le=_dr-_dc;
+                ctx.save();ctx.globalAlpha=0.5;ctx.fillStyle='rgb(255,255,255)';
+                while(true){
+                    const _px=Math.round(_lc*editorZoom+editorCamX),_py=Math.round(_lr*editorZoom+editorCamY);
+                    const _pw=Math.max(1,Math.round((_lc+1)*editorZoom+editorCamX)-_px);
+                    const _ph=Math.max(1,Math.round((_lr+1)*editorZoom+editorCamY)-_py);
+                    ctx.fillRect(_px,_py,_pw,_ph);
+                    if(_lr===_gr&&_lc===_gc)break;
+                    const _e2=2*_le;
+                    if(_e2>-_dc){_le-=_dc;_lr+=_sr;}
+                    if(_e2<_dr){_le+=_dr;_lc+=_sc;}
+                }
+                ctx.restore();
+            }
+            // Grid lines — clipped to the 100×100 placeable area only
+            {const _glx0=Math.max(0,Math.round(editorCamX)),_glx1=Math.min(_edAreaW,Math.round(editorCamX+TILE_GRID_WIDTH*editorZoom));
+            const _gly0=Math.max(0,Math.round(editorCamY)),_gly1=Math.min(SCREEN_HEIGHT,Math.round(editorCamY+TILE_GRID_HEIGHT*editorZoom));
+            if(editorZoom>=8){
+                // Fine lines (every tile)
+                ctx.beginPath();ctx.strokeStyle='rgba(255,255,255,0.18)';ctx.lineWidth=1;
+                for(let _c=_v0c;_c<=_v1c;_c++){const _lx=Math.round(_c*editorZoom+editorCamX);if(_lx<_glx0||_lx>_glx1)continue;ctx.moveTo(_lx,_gly0);ctx.lineTo(_lx,_gly1);}
+                for(let _r=_v0r;_r<=_v1r;_r++){const _ly=Math.round(_r*editorZoom+editorCamY);if(_ly<_gly0||_ly>_gly1)continue;ctx.moveTo(_glx0,_ly);ctx.lineTo(_glx1,_ly);}
+                ctx.stroke();
+                // Major lines (every 10 tiles)
+                ctx.beginPath();ctx.strokeStyle='rgba(255,255,255,0.45)';ctx.lineWidth=1;
+                for(let _c=0;_c<=TILE_GRID_WIDTH;_c+=10){const _lx=Math.round(_c*editorZoom+editorCamX);if(_lx<_glx0||_lx>_glx1)continue;ctx.moveTo(_lx,_gly0);ctx.lineTo(_lx,_gly1);}
+                for(let _r=0;_r<=TILE_GRID_HEIGHT;_r+=10){const _ly=Math.round(_r*editorZoom+editorCamY);if(_ly<_gly0||_ly>_gly1)continue;ctx.moveTo(_glx0,_ly);ctx.lineTo(_glx1,_ly);}
+                ctx.stroke();
+            } else {
+                // Zoomed out: only major lines
+                ctx.beginPath();ctx.strokeStyle='rgba(255,255,255,0.35)';ctx.lineWidth=1;
+                for(let _c=0;_c<=TILE_GRID_WIDTH;_c+=10){const _lx=Math.round(_c*editorZoom+editorCamX);if(_lx<_glx0||_lx>_glx1)continue;ctx.moveTo(_lx,_gly0);ctx.lineTo(_lx,_gly1);}
+                for(let _r=0;_r<=TILE_GRID_HEIGHT;_r+=10){const _ly=Math.round(_r*editorZoom+editorCamY);if(_ly<_gly0||_ly>_gly1)continue;ctx.moveTo(_glx0,_ly);ctx.lineTo(_glx1,_ly);}
+                ctx.stroke();
+            }}
+            // Grid boundary
+            {const _bx=Math.round(editorCamX),_by=Math.round(editorCamY);
+            const _bw=Math.round(TILE_GRID_WIDTH*editorZoom),_bh=Math.round(TILE_GRID_HEIGHT*editorZoom);
+            ctx.strokeStyle='rgba(180,200,255,0.6)';ctx.lineWidth=2;ctx.strokeRect(_bx,_by,_bw,_bh);}
+            // Hover cell highlight
+            if(_edInGrid&&_validCell){
+                const _hx=Math.round(_gc*editorZoom+editorCamX),_hy=Math.round(_gr*editorZoom+editorCamY);
+                const _hw=Math.max(1,Math.round((_gc+1)*editorZoom+editorCamX)-_hx);
+                const _hh=Math.max(1,Math.round((_gr+1)*editorZoom+editorCamY)-_hy);
+                ctx.strokeStyle='rgba(255,255,255,0.8)';ctx.lineWidth=2;ctx.strokeRect(_hx,_hy,_hw,_hh);
+            }
+            // Sidebar background
+            ctx.fillStyle='rgb(192,192,198)';ctx.fillRect(_edSideX,0,EDITOR_SIDEBAR_W,SCREEN_HEIGHT);
+            ctx.fillStyle='rgb(152,152,160)';ctx.fillRect(_edSideX,0,2,SCREEN_HEIGHT);
+            // BG toggle (very top of sidebar)
+            {const _bgX=_edSideX+_palPad,_bgW=EDITOR_SIDEBAR_W-_palPad*2;
+            ctx.fillStyle='rgb(172,185,198)';ctx.fillRect(_bgX,_edBgBtnY,_bgW,_edBgBtnH);
+            ctx.strokeStyle='rgb(118,148,165)';ctx.lineWidth=1;ctx.strokeRect(_bgX,_edBgBtnY,_bgW,_edBgBtnH);
+            {const _bgl=editorBackground===1?'BG: GRASS':'BG: VOID',_bglw=_bgl.length*(4*3+3);
+            renderText(ctx,textSheet,_bgl,_bgX+Math.floor(_bgW/2-_bglw/2),_edBgBtnY+Math.floor((_edBgBtnH-21)/2),1,12,62,95);}}
+            // Divider + TILES header below BG toggle
+            ctx.strokeStyle='rgb(152,152,160)';ctx.lineWidth=1;
+            ctx.beginPath();ctx.moveTo(_edSideX+2,_edBgBtnY+_edBgBtnH+2);ctx.lineTo(_edSideX+EDITOR_SIDEBAR_W,_edBgBtnY+_edBgBtnH+2);ctx.stroke();
+            {const _thY=_edBgBtnY+_edBgBtnH+4,_thH=_palAreaY-_thY-2;
+            const _stl='TILES',_stw=_stl.length*(4*3+3);
+            renderText(ctx,textSheet,_stl,_edSideX+Math.floor(EDITOR_SIDEBAR_W/2-_stw/2),_thY+Math.floor((_thH-21)/2),1,35,35,65);}
+            // Divider above palette
+            ctx.strokeStyle='rgb(152,152,160)';ctx.lineWidth=1;
+            ctx.beginPath();ctx.moveTo(_edSideX+2,_palAreaY-2);ctx.lineTo(_edSideX+EDITOR_SIDEBAR_W,_palAreaY-2);ctx.stroke();
+            // Palette items (clipped + scrollable)
+            ctx.save();
+            ctx.beginPath();ctx.rect(_edSideX,_palAreaY,EDITOR_SIDEBAR_W,_palAreaH);ctx.clip();
+            for(let _pi=0;_pi<EDITOR_PALETTE.length;_pi++){
+                const _ep=EDITOR_PALETTE[_pi];
+                const _iy=_palAreaY+_pi*_palItemH-editorPalScroll;
+                if(_iy+_palItemH<_palAreaY||_iy>_palAreaY+_palAreaH)continue;
+                const _ix=_edSideX+_palPad,_iw=EDITOR_SIDEBAR_W-_palPad*2,_ih=_palItemH-2;
+                const _isSel=_ep.v===editorSelectedTile;
+                ctx.fillStyle=_isSel?'rgb(182,194,230)':'rgb(208,208,214)';ctx.fillRect(_ix,_iy,_iw,_ih);
+                ctx.strokeStyle=_isSel?'rgb(72,98,210)':'rgb(162,162,170)';ctx.lineWidth=_isSel?2:1;ctx.strokeRect(_ix,_iy,_iw,_ih);
+                const _swS=_ih-8,_swX=_ix+6,_swY=_iy+Math.floor((_ih-_swS)/2);
+                if(_ep.sx>=0){ctx.drawImage(sheet,_ep.sx,_ep.sy,17,17,_swX,_swY,_swS,_swS);}
+                else{ctx.fillStyle=_ep.col;ctx.fillRect(_swX,_swY,_swS,_swS);}
+                ctx.strokeStyle='rgba(0,0,0,0.15)';ctx.lineWidth=1;ctx.strokeRect(_swX,_swY,_swS,_swS);
+                {const _nm=_ep.name,_nlX=_swX+_swS+10,_nlY=_iy+Math.floor((_ih-21)/2);
+                renderText(ctx,textSheet,_nm,_nlX,_nlY,1,_isSel?12:52,_isSel?20:52,_isSel?108:66);}
+            }
+            ctx.restore();
+            // Scroll indicator
+            if(_maxPalScroll>0){
+                const _siH=Math.max(24,_palAreaH*_palAreaH/(EDITOR_PALETTE.length*_palItemH));
+                const _siY=_palAreaY+(editorPalScroll/_maxPalScroll)*(_palAreaH-_siH);
+                ctx.fillStyle='rgba(0,0,0,0.22)';ctx.fillRect(_edSideX+EDITOR_SIDEBAR_W-5,_siY,4,_siH);
+            }
+            // Draw mode section (always visible at bottom, not scrollable)
+            ctx.fillStyle='rgb(180,180,188)';ctx.fillRect(_edSideX+2,_dmSectionY,EDITOR_SIDEBAR_W-2,100);
+            ctx.strokeStyle='rgb(145,145,155)';ctx.lineWidth=1;
+            ctx.beginPath();ctx.moveTo(_edSideX+2,_dmSectionY);ctx.lineTo(_edSideX+EDITOR_SIDEBAR_W,_dmSectionY);ctx.stroke();
+            {const _dml='DRAW MODE',_dmw=_dml.length*(4*3+3);
+            renderText(ctx,textSheet,_dml,_edSideX+Math.floor(EDITOR_SIDEBAR_W/2-_dmw/2),_dmLabelY,1,48,48,72);}
+            const _modeLbls=['DRAW','FILL','LINE'];
+            for(let _mi=0;_mi<3;_mi++){
+                const _mbx=_edSideX+_palPad+_mi*(_edModeBtnW+2);
+                const _msel=editorDrawMode===_edModes[_mi];
+                ctx.fillStyle=_msel?'rgb(165,188,228)':'rgb(205,205,210)';ctx.fillRect(_mbx,_edModeBtnY,_edModeBtnW,_edModeBtnH);
+                ctx.strokeStyle=_msel?'rgb(72,118,210)':'rgb(158,158,168)';ctx.lineWidth=_msel?2:1;ctx.strokeRect(_mbx,_edModeBtnY,_edModeBtnW,_edModeBtnH);
+                const _mlt=_modeLbls[_mi],_mlw=_mlt.length*(4*3+3);
+                renderText(ctx,textSheet,_mlt,_mbx+Math.floor(_edModeBtnW/2-_mlw/2),_edModeBtnY+Math.floor((_edModeBtnH-21)/2),1,_msel?12:58,_msel?52:58,_msel?175:72);
+            }
+            // Level name display (top of game area)
+            if(editorLevelName){const _lnw=editorLevelName.length*(4*3+3);
+                renderText(ctx,textSheet,editorLevelName,Math.floor(_edAreaW/2-_lnw/2),10,1,25,25,65);}
+            // Try Level button
+            if(!_canTry){ctx.save();ctx.globalAlpha=0.4;}
+            renderTextButton(ctx,btnSheet,textSheet,16,_edTryX,_edTryY,_edTryW,'TRY LEVEL',0,0,0);
+            if(!_canTry){ctx.restore();
+                {const _hn='NO SPAWN PLACED',_hw=_hn.length*(4*3+3);
+                renderText(ctx,textSheet,_hn,Math.floor(_edTryX+_edTryW/2-_hw/2),_edTryY-50,1,200,80,80);}}
+            // Publish button
+            if(!_canPublish){ctx.save();ctx.globalAlpha=0.4;}
+            renderTextButton(ctx,redBtnSheet,textSheet,16,_edPubX,_edPubY,_edPubW,'PUBLISH',0,0,0);
+            if(!_canPublish){ctx.restore();}
+            if(!_canPublish&&_edOverPub){
+                const _nl=!currentUser?'LOG IN TO PUBLISH':!_canTry?'NEED A SPAWN':'NEED AN END BLOCK';
+                const _nw=_nl.length*(4*3+3);
+                renderText(ctx,textSheet,_nl,_edPubX+Math.floor((_edPubW-_nw)/2),_edPubY-50,1,200,80,80);}
+            // Back button + title
+            renderButton(ctx,btnSheet,textSheet,4,_edBb.bx,_edBb.by,_edBb.bw,_edBb.bh,'');
         }
 
         // ── Cheat detected screen ──
@@ -5098,7 +5981,7 @@ Promise.all([
         }
 
         // ── Global chat (visible on all pages when logged in) ──
-        if(currentUser){
+        if(currentUser&&_startPage!=='LEVEL_EDITOR'&&_startPage!=='LEVEL_NAME'&&_startPage!=='CUSTOM_LEVELS'&&_startPage!=='CUSTOM_LEVEL_DETAIL'){
             const CBX=145,CBW=SCREEN_WIDTH-CBX-10,msgLineH=36,INH=40,INY=SCREEN_HEIGHT-INH-30;
             const bgH=7*3+10,_cp=4*3+3,_maxBgW=CBW;
             function renderChatMsg(m,rowY,alpha){
