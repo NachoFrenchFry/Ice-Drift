@@ -2040,6 +2040,10 @@ async function dbLoadCommunityLevels(){
     const{data}=await db.from('custom_levels').select('*').eq('published',true).order('updated_at',{ascending:false}).limit(100);
     communityLevels=data||[];communityLevelsLoaded=true;
 }
+async function dbRefreshLevelGlobalBest(levelId){
+    const{data}=await db.from('custom_levels').select('global_best_time').eq('id',levelId).single();
+    if(data&&selectedCustomLevel&&selectedCustomLevel.id===levelId)selectedCustomLevel.global_best_time=data.global_best_time;
+}
 async function dbLoadCustomLevelPB(levelId){
     if(!currentUser){selectedCustomLevelPB=null;return;}
     const{data,error}=await db.from('custom_level_records').select('best_time').eq('user_id',currentUser.id).eq('level_id',levelId).maybeSingle();
@@ -2210,12 +2214,15 @@ function declineRaceChallenge(){
     raceIncoming=null;
 }
 
-function sendDuelInvite(){
+async function sendDuelInvite(){
     if(!raceChallengeChannel||!duelInput.trim())return;
     if(duelInput.trim().toLowerCase()===currentUsername.toLowerCase()){duelError='CANNOT DUEL YOURSELF';return;}
+    duelError='';raceState='duel_wait';
+    const{data:_prof}=await db.from('profiles').select('id').ilike('username',duelInput.trim()).maybeSingle();
+    if(!_prof){duelError='PLAYER NOT FOUND';raceState='duel_send';return;}
     raceSessionId=raceGenId();raceMap=Math.floor(Math.random()*5);
     raceChallengeChannel.send({type:'broadcast',event:'duel_invite',payload:{fromUid:currentUser.id,fromUsername:currentUsername,toUsername:duelInput.trim().toLowerCase(),sessionId:raceSessionId,map:raceMap}});
-    duelError='';raceState='duel_wait';clearTimeout(duelWaitTimeout);
+    clearTimeout(duelWaitTimeout);
     // Pre-join the race channel so presence detects when opponent accepts, rather than
     // depending solely on the duel_accept broadcast which may not be reliable
     if(raceChannel){raceChannel.unsubscribe();raceChannel=null;}
@@ -3915,7 +3922,7 @@ Promise.all([
                 renderText(ctx,textSheet,st,Math.floor(SCREEN_WM-stW/2),Math.floor(SCREEN_HM-60),1,0,0,0);
                 const dCanW=200,dCanY=Math.floor(SCREEN_HM+10),dCanX=Math.floor(SCREEN_WM-dCanW/2);
                 renderTextButton(ctx,btnSheet,textSheet,0,dCanX,dCanY,dCanW,'CANCEL',0,0,0);
-                if(mjp&&inRect(mouseX,mouseY,dCanX,dCanY,dCanW,80)){raceState='duel_send';raceSessionId=null;duelError='';clearTimeout(duelWaitTimeout);if(raceChannel){raceChannel.unsubscribe();raceChannel=null;}}
+                if(mjp&&inRect(mouseX,mouseY,dCanX,dCanY,dCanW,80)){raceState='duel_send';raceSessionId=null;duelError='';clearTimeout(duelWaitTimeout);if(raceChannel){raceChannel.unsubscribe();raceChannel=null;}setActiveInput(null);}
             } else if(raceState==='challenge_send'){
                 raceChallengeInput=inputValues.username;
                 const fW=400,fH=54,fX=Math.floor(SCREEN_WM-fW/2),fY=Math.floor(SCREEN_HM-80);
@@ -5410,6 +5417,7 @@ Promise.all([
                         selectedCustomLevel=communityLevels[_ci];selectedCustomLevelPB=undefined;
                         loadLevelIntoEditor(selectedCustomLevel);
                         dbLoadCustomLevelPB(selectedCustomLevel.id);
+                        dbRefreshLevelGlobalBest(selectedCustomLevel.id);
                         page='CUSTOM_LEVEL_DETAIL';break;
                     }
                 }
@@ -5434,7 +5442,7 @@ Promise.all([
             }
             // Main content (clipped)
             ctx.save();ctx.beginPath();ctx.rect(0,_clBarH,SCREEN_WIDTH,SCREEN_HEIGHT-_clBarH);ctx.clip();
-            const _mmColors=['','#505060','#96dcff','#50c850','#ff6450','#3c3c46','#dc3232','#0f0520','#ffdc32','#ffb432','#ffa032','#ffc832','#3c8220','#32dcdc'];
+            const _mmColors=['','#505060','#96dcff','rgb(50,80,22)','#ff6450','#3c3c46','#dc3232','#0f0520','#ffdc32','#ffb432','#ffa032','#ffc832','#3c8220','#32dcdc'];
             if(customLevelsTab==='community'){
                 if(!communityLevelsLoaded){
                     const _ll='Loading...',_lw=_ll.length*(4*3+3);
@@ -5569,7 +5577,7 @@ Promise.all([
                 // Left: minimap
                 const _mmSz=Math.min(SCREEN_WM-80,SCREEN_HEIGHT-120);
                 const _mmX=Math.floor(SCREEN_WM/2-_mmSz/2),_mmY=Math.floor(SCREEN_HM-_mmSz/2);
-                const _mmColors2=['','#505060','#96dcff','#50c850','#ff6450','#3c3c46','#dc3232','#0f0520','#ffdc32','#ffb432','#ffa032','#ffc832','#3c8220','#32dcdc'];
+                const _mmColors2=['','#505060','#96dcff','rgb(50,80,22)','#ff6450','#3c3c46','#dc3232','#0f0520','#ffdc32','#ffb432','#ffa032','#ffc832','#3c8220','#32dcdc'];
                 ctx.fillStyle=lv.background===2?'rgb(10,5,20)':'rgb(50,80,22)';ctx.fillRect(_mmX,_mmY,_mmSz,_mmSz);
                 ctx.strokeStyle='rgb(145,145,152)';ctx.lineWidth=2;ctx.strokeRect(_mmX,_mmY,_mmSz,_mmSz);
                 const _tSz2=_mmSz/100;
