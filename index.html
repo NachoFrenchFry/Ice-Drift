@@ -1,6 +1,6 @@
 <!DOCTYPE html>
 <html>
-<head> 
+<head>
 <title>Ice Drift</title>
 <meta name="viewport" content="width=device-width,initial-scale=1,user-scalable=no">
 <style>body{margin:0;overflow:hidden;background:#000;touch-action:none;}canvas{display:block;image-rendering:pixelated;image-rendering:crisp-edges;transform:translateZ(0);}</style>
@@ -3507,10 +3507,11 @@ Promise.all([
             shopScroll=Math.max(0,Math.min(shopScroll,Math.max(0,totalGridH-(SCREEN_HEIGHT-200))));
             const gridY=130-shopScroll;
             ctx.save();ctx.rect(0,100,SCREEN_WIDTH,SCREEN_HEIGHT-100);ctx.clip();
+            let _vi=0;
             for(let i=0;i<SKINS.length;i++){
                 const sk=SKINS[i];
                 if(sk.exclusive&&!sk.exclusive.includes((currentUsername||'').toLowerCase())) continue;
-                const col=i%2,row=Math.floor(i/2);
+                const col=_vi%2,row=Math.floor(_vi/2);_vi++;
                 const cx=gridX+col*(cardW+cardGapX),cy=gridY+row*(cardH+cardGapY);
                 const owned=ownedSkins.includes(i)||(sk.exclusive&&sk.exclusive.includes((currentUsername||'').toLowerCase())),equipped=selectedSkin===i;
                 // Card bg
