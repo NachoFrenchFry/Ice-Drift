@@ -100,7 +100,7 @@ async function dbSignUp(username,password){
         talentPurchased=new Array(TALENT_COUNT).fill(false);talentRecomputeEffects();
         localStorage.setItem('icedrift_owned_skins','[0]');localStorage.setItem('icedrift_skin','0');
         authLoading=false;showPassword=false;
-        page='LEVELS';dbLoadRecords();joinChatChannel();subscribeToProfile();joinRaceChallengeChannel();
+        page='LEVELS';dbLoadRecords();joinChatChannel();subscribeToProfile();joinRaceChallengeChannel();joinOnlineChannel();
     }catch(e){authLoading=false;authError='Error: '+e.message;}
 }
 async function dbSignIn(username,password){
@@ -111,7 +111,7 @@ async function dbSignIn(username,password){
         currentUser=data.user;
         await dbLoadProfile(data.user.id);
         authLoading=false;showPassword=false;
-        page='LEVELS';dbLoadRecords();joinChatChannel();subscribeToProfile();joinRaceChallengeChannel();
+        page='LEVELS';dbLoadRecords();joinChatChannel();subscribeToProfile();joinRaceChallengeChannel();joinOnlineChannel();
     }catch(e){authLoading=false;authError='Error: '+e.message;}
 }
 
@@ -132,7 +132,7 @@ async function dbSignIn(username,password){
             currentUser=null;page='MENU';return;
         }
         dbLoadRecords();
-        page='LEVELS';joinChatChannel();subscribeToProfile();joinRaceChallengeChannel();
+        page='LEVELS';joinChatChannel();subscribeToProfile();joinRaceChallengeChannel();joinOnlineChannel();
     }
 })();
 

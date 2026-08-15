@@ -115,6 +115,7 @@ function renderButton(ctx,btnSheet,textSheet,type,bx,by,bw,bh,text){
     if(type===9){sx=40;sy=140;sw=20;sh=20;}
     if(type===10){sx=40;sy=160;sw=20;sh=20;}
     if(type===11){sx=40;sy=180;sw=20;sh=20;}
+    if(type===12){sx=40;sy=200;sw=20;sh=20;}
     // Shadow
     ctx.save();
     ctx.globalAlpha=80/255;

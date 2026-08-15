@@ -80,11 +80,11 @@ function joinRaceChallengeChannel(){
         })
         .on('broadcast',{event:'duel_invite'},({payload})=>{
             if((payload.toUsername||'').toLowerCase()!==currentUsername.toLowerCase())return;
-            duelIncoming={fromUid:payload.fromUid,fromUsername:payload.fromUsername,sessionId:payload.sessionId,map:payload.map};
+            duelIncoming={fromUid:payload.fromUid,fromUsername:payload.fromUsername,sessionId:payload.sessionId,map:payload.map,skin:payload.skin||0};
         })
         .on('broadcast',{event:'duel_accept'},({payload})=>{
             if(payload.sessionId!==raceSessionId||raceState!=='duel_wait')return;
-            raceOpponent={uid:payload.fromUid,username:payload.fromUsername,dc:0,tp:0};
+            raceOpponent={uid:payload.fromUid,username:payload.fromUsername,dc:0,tp:0,skin:payload.skin||0};
             clearTimeout(duelWaitTimeout);startRaceSession();
         })
         .on('broadcast',{event:'duel_decline'},({payload})=>{
@@ -121,13 +121,15 @@ function declineRaceChallenge(){
 }
 
 async function sendDuelInvite(){
-    if(!raceChallengeChannel||!duelInput.trim())return;
+    if(!duelInput.trim()){duelError='ENTER A USERNAME';return;}
+    if(!raceChallengeChannel)joinRaceChallengeChannel();
+    if(!raceChallengeChannel){duelError='NOT CONNECTED — TRY AGAIN';return;}
     if(duelInput.trim().toLowerCase()===currentUsername.toLowerCase()){duelError='CANNOT DUEL YOURSELF';return;}
     duelError='';raceState='duel_wait';
     const{data:_prof}=await db.from('profiles').select('id').ilike('username',duelInput.trim()).maybeSingle();
     if(!_prof){duelError='PLAYER NOT FOUND';raceState='duel_send';return;}
     raceSessionId=raceGenId();raceMap=Math.floor(Math.random()*5);
-    raceChallengeChannel.send({type:'broadcast',event:'duel_invite',payload:{fromUid:currentUser.id,fromUsername:currentUsername,toUsername:duelInput.trim().toLowerCase(),sessionId:raceSessionId,map:raceMap}});
+    raceChallengeChannel.send({type:'broadcast',event:'duel_invite',payload:{fromUid:currentUser.id,fromUsername:currentUsername,toUsername:duelInput.trim().toLowerCase(),sessionId:raceSessionId,map:raceMap,skin:selectedSkin}});
     clearTimeout(duelWaitTimeout);
     // Pre-join the race channel so presence detects when opponent accepts, rather than
     // depending solely on the duel_accept broadcast which may not be reliable
@@ -140,10 +142,10 @@ async function sendDuelInvite(){
         if(_pu.length<2)return;
         const _ou=_pu.find(u=>u!==currentUser.id);if(!_ou)return;
         const _op=(Object.values(_ps[_ou])||[])[0]||{};
-        raceOpponent={uid:_ou,username:_op.username||_dIn,dc:0,tp:0,skin:_op.skin||0};
+        raceOpponent={uid:_ou,username:_op.username||_dIn,dc:0,tp:0,skin:_op.skin??0};
         clearTimeout(duelWaitTimeout);
         setTimeout(()=>{if(raceState==='duel_wait'&&raceSessionId===_sid)startRaceSession();},0);
-    }).subscribe(async s=>{if(s==='SUBSCRIBED')await raceChannel.track({uid:currentUser.id,username:currentUsername});});
+    }).subscribe(async s=>{if(s==='SUBSCRIBED')await raceChannel.track({uid:currentUser.id,username:currentUsername,skin:selectedSkin});});
     duelWaitTimeout=setTimeout(()=>{
         if(raceState==='duel_wait'){duelError='PLAYER NOT FOUND OR NOT ONLINE';raceState='duel_send';raceSessionId=null;if(raceChannel){raceChannel.unsubscribe();raceChannel=null;}}
     },10000);
@@ -151,9 +153,9 @@ async function sendDuelInvite(){
 function acceptDuelInvite(){
     if(!duelIncoming||!raceChallengeChannel)return;
     raceMode='duel';
-    raceOpponent={uid:duelIncoming.fromUid,username:duelIncoming.fromUsername,dc:0,tp:0};
+    raceOpponent={uid:duelIncoming.fromUid,username:duelIncoming.fromUsername,dc:0,tp:0,skin:duelIncoming.skin||0};
     raceSessionId=duelIncoming.sessionId;raceMap=duelIncoming.map;
-    raceChallengeChannel.send({type:'broadcast',event:'duel_accept',payload:{fromUid:currentUser.id,fromUsername:currentUsername,sessionId:raceSessionId}});
+    raceChallengeChannel.send({type:'broadcast',event:'duel_accept',payload:{fromUid:currentUser.id,fromUsername:currentUsername,sessionId:raceSessionId,skin:selectedSkin}});
     duelIncoming=null;startRaceSession();
 }
 function declineDuelInvite(){
@@ -209,7 +211,7 @@ function startRaceSession(){
             }
         })
         .subscribe(async(s)=>{
-            if(s==='SUBSCRIBED')await raceChannel.track({uid:currentUser.id,username:currentUsername});
+            if(s==='SUBSCRIBED')await raceChannel.track({uid:currentUser.id,username:currentUsername,skin:selectedSkin});
         });
 }
 function checkRaceEnd(){
@@ -232,7 +234,7 @@ function applyRaceResult(won){
     finish=false;levelLoaded=false;page='RACE_RESULT';
 }
 function leaveRaceAll(){
-    leaveRaceQueueChannel();leaveRaceChallengeChannel();
+    leaveRaceQueueChannel();
     if(raceChannel){raceChannel.unsubscribe();raceChannel=null;}
     raceState='menu';raceOpponent=null;raceSessionId=null;raceResult=null;raceIncoming=null;
     raceChallengeInput='';raceChallengeError='';raceStartAt=0;finish=false;levelLoaded=false;
@@ -253,6 +255,24 @@ function leaveChatChannel(){
     if(!chatChannel)return;
     chatChannel.unsubscribe();
     chatChannel=null;
+}
+function joinOnlineChannel(){
+    if(onlineChannel||!currentUser)return;
+    onlineChannel=db.channel('ice-drift-online',{config:{presence:{key:currentUser.id}}});
+    onlineChannel
+        .on('presence',{event:'sync'},()=>{
+            const st=onlineChannel.presenceState();
+            onlinePlayers=Object.values(st).map(p=>p[0]).filter(Boolean);
+        })
+        .subscribe(async(status)=>{
+            if(status==='SUBSCRIBED')await onlineChannel.track({uid:currentUser.id,username:currentUsername});
+        });
+}
+function leaveOnlineChannel(){
+    if(!onlineChannel)return;
+    onlineChannel.unsubscribe();
+    onlineChannel=null;
+    onlinePlayers=[];
 }
 function subscribeToProfile(){
     if(profileChannel||!currentUser)return;

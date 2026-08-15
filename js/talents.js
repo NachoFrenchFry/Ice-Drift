@@ -297,6 +297,13 @@ function renderTalents(ctx,btnSheet,greySheet,tintSheet,textSheet,iconsImg){
 
 
 const UPDATE_LOG=[
+    {date:'AUGUST 14TH 2026',lines:[
+        '- Added Players Online list. See who is currently playing',
+        '  via the new button in the top bar.',
+        '- Fixed a bug where the Duel invite button would stop working',
+        '  after leaving the Race page once.',
+        '- Duel opponents now display their actual car skin.',
+    ]},
     {date:'AUGUST 13TH 2026',lines:[
         '- Added Unpublish option to the right-click menu on your levels.',
         '- Undo/Redo (Cmd/Ctrl+Z / Cmd+Shift+Z / Ctrl+Y) added to the level editor.',

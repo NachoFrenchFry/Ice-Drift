@@ -535,7 +535,9 @@ Promise.all([
                 upScroll=0;page='UPDATES';
                 if(hasNewUpdate&&currentUser){hasNewUpdate=false;lastUpdateSeen=UPDATE_LOG[0].date;dbSaveProfile();}
             }
-            const dcBtnX=upBtnX+LEVEL_BUTTON_SIZE+20,dcBtnY=setY;
+            const plBtnX=upBtnX+LEVEL_BUTTON_SIZE+20,plBtnY=setY;
+            if(mjp&&inRect(mouseX,mouseY,plBtnX,plBtnY,LEVEL_BUTTON_SIZE,LEVEL_BUTTON_SIZE)) page='PLAYER_LIST';
+            const dcBtnX=plBtnX+LEVEL_BUTTON_SIZE+20,dcBtnY=setY;
             if(mjp&&inRect(mouseX,mouseY,dcBtnX,dcBtnY,LEVEL_BUTTON_SIZE,LEVEL_BUTTON_SIZE)) window.open('https://discord.gg/rjwWPjjMFJ','_blank');
             ctx.fillStyle='#000';ctx.fillRect(0,0,SCREEN_WIDTH,SCREEN_HEIGHT);
             menuBg.render(ctx,sheet);
@@ -617,8 +619,19 @@ Promise.all([
                 ctx.beginPath();ctx.roundRect(ttX,ttY,ttW,ttH,8);ctx.fill();ctx.restore();
                 renderText(ctx,textSheet,label,ttX+padX,ttY+padY,1,hasNewUpdate?120:255,hasNewUpdate?230:255,hasNewUpdate?60:255);
             }}
+            // Player List button
+            {const plW=LEVEL_BUTTON_SIZE,plH=LEVEL_BUTTON_SIZE,plBX=30+LEVEL_BUTTON_SIZE*5+100,plBY=30;
+            renderButton(ctx,btnSheet,textSheet,12,plBX,plBY,plW,plH,'');
+            if(inRect(mouseX,mouseY,plBX,plBY,plW,plH)){
+                const label='PLAYERS ONLINE',padX=10,padY=8;
+                const ttW=label.length*(4*3+3)+padX*2,ttH=7*3+padY*2;
+                const ttX=plBX+plW/2-ttW/2,ttY=plBY+plH+8;
+                ctx.save();ctx.globalAlpha=180/255;ctx.fillStyle='rgb(0,0,0)';
+                ctx.beginPath();ctx.roundRect(ttX,ttY,ttW,ttH,8);ctx.fill();ctx.restore();
+                renderText(ctx,textSheet,label,ttX+padX,ttY+padY,1,255,255,255);
+            }}
             // Discord button
-            {const dcW=LEVEL_BUTTON_SIZE,dcH=LEVEL_BUTTON_SIZE,dcBX=30+LEVEL_BUTTON_SIZE*5+100,dcBY=30;
+            {const dcW=LEVEL_BUTTON_SIZE,dcH=LEVEL_BUTTON_SIZE,dcBX=30+LEVEL_BUTTON_SIZE*6+120,dcBY=30;
             renderButton(ctx,btnSheet,textSheet,9,dcBX,dcBY,dcW,dcH,'');
             if(inRect(mouseX,mouseY,dcBX,dcBY,dcW,dcH)){
                 const label='Join Our Discord Server!',padX=10,padY=8;
@@ -920,6 +933,33 @@ Promise.all([
             if(mjp&&inRect(mouseX,mouseY,bb.bx,bb.by,bb.bw,bb.bh)){upScroll=0;page='LEVELS';}
             renderButton(ctx,btnSheet,textSheet,4,bb.bx,bb.by,bb.bw,bb.bh,'');}
 
+        } else if(page==='PLAYER_LIST'){
+            ctx.fillStyle='#d0d0d0';ctx.fillRect(0,0,SCREEN_WIDTH,SCREEN_HEIGHT);
+            const _plTtl='PLAYERS ONLINE',_plTtlW=_plTtl.length*(4*3*2+3);
+            renderText(ctx,textSheet,_plTtl,Math.floor(SCREEN_WM-_plTtlW/2),20,2,40,40,40);
+            const _plListX=Math.floor(SCREEN_WM-340),_plListW=680,_plListY=100,_plRowH=48;
+            // Build list: self first, then others, sorted alphabetically
+            const _self=currentUser?{uid:currentUser.id,username:currentUsername}:null;
+            const _others=onlinePlayers.filter(p=>p.uid!==currentUser?.id).sort((a,b)=>(a.username||'').localeCompare(b.username||''));
+            const _plRows=_self?[_self,..._others]:_others;
+            if(_plRows.length===0){
+                const _nd='NO PLAYERS ONLINE',_ndW=_nd.length*(4*3+3);
+                renderText(ctx,textSheet,_nd,Math.floor(SCREEN_WM-_ndW/2),Math.floor(SCREEN_HM),1,80,80,80);
+            } else {
+                for(let i=0;i<_plRows.length;i++){
+                    const ry=_plListY+i*_plRowH;
+                    const _isSelf=_plRows[i].uid===currentUser?.id;
+                    ctx.save();ctx.fillStyle=i%2===0?'rgba(0,0,0,0.06)':'rgba(0,0,0,0.02)';
+                    ctx.fillRect(_plListX,ry,_plListW,_plRowH);ctx.restore();
+                    const _un=_plRows[i].username||'unknown';
+                    renderText(ctx,textSheet,_un,_plListX+16,ry+_plRowH/2-10,1,_isSelf?28:10,_isSelf?88:10,_isSelf?28:40);
+                    if(_isSelf){const _yw='(YOU)',_ywW=_yw.length*(4*3+3);renderText(ctx,textSheet,_yw,_plListX+_plListW-_ywW-10,ry+_plRowH/2-10,1,28,88,28);}
+                }
+            }
+            {const bb=getBackBtn();
+            if(mjp&&inRect(mouseX,mouseY,bb.bx,bb.by,bb.bw,bb.bh)) page='LEVELS';
+            renderButton(ctx,btnSheet,textSheet,4,bb.bx,bb.by,bb.bw,bb.bh,'');}
+
         } else if(page==='CONTROLS'){
             ctx.fillStyle='#1a3d1a';ctx.fillRect(0,0,SCREEN_WIDTH,SCREEN_HEIGHT);
             const ctlTitle='CONTROLS',ctlTW=ctlTitle.length*(4*3*2+3);
@@ -999,7 +1039,7 @@ Promise.all([
                                 if(_saveProfileTimer){clearTimeout(_saveProfileTimer);_saveProfileTimer=null;}
                                 await _dbSaveProfileNow();
                                 db.auth.signOut();
-                                leaveChatChannel();leaveLobbyChannel();leaveRaceChallengeChannel();unsubscribeFromProfile();
+                                leaveChatChannel();leaveLobbyChannel();leaveRaceChallengeChannel();unsubscribeFromProfile();leaveOnlineChannel();
                                 currentUser=null;currentUsername='';driftCoins=0;totalTalentPoints=0;spentTalentPoints=0;
                                 talentPurchased=new Array(TALENT_COUNT).fill(false);talentRecomputeEffects();
                                 inputValues.username='';inputValues.password='';deleteConfirm=false;setChatActive(false);page='MENU';

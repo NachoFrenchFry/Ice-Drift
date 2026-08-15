@@ -88,7 +88,7 @@ async function dbLoadRecords(){
 async function dbDeleteAccount(){
     if(!currentUser)return;
     await db.rpc('delete_account');
-    leaveChatChannel();leaveLobbyChannel();leaveRaceChallengeChannel();unsubscribeFromProfile();
+    leaveChatChannel();leaveLobbyChannel();leaveRaceChallengeChannel();unsubscribeFromProfile();leaveOnlineChannel();
     currentUser=null;currentUsername='';driftCoins=0;totalTalentPoints=0;spentTalentPoints=0;
     talentPurchased=new Array(TALENT_COUNT).fill(false);talentRecomputeEffects();
     inputValues.username='';inputValues.password='';deleteConfirm=false;

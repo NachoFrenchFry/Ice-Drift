@@ -98,6 +98,7 @@ let raceMapAnimStart=0;
 let _raceProposed=null;
 let chatChannel=null,chatMessages=[],chatInput='',chatActive=false,chatCaretPos=0;
 let profileChannel=null;
+let onlineChannel=null,onlinePlayers=[];
 let shiftPressLog=[],antiCheatFlagged=false;
 const CHAT_MAX=20;
 // Talent tree UI state
